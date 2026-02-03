@@ -28,15 +28,15 @@ app.use(cors({ origin: ENV.CLIENT_URL, Credentials: true }))
 
 app.use("/api/inngest", serve({ client: inngest, functions }))
 
-app.get('/', (req, res) => {
-    res.status(200).json({ message: 'success from api' })
+app.get('/api', (req, res) => {
+  res.json({ message: 'API working' })
 })
 
 // make our app ready for dployment
 if (ENV.NODE_ENV === 'production') {
     app.use(express.static(path.join(__dirname, '../../frontend/dist')));
 
-    app.get('*', (req, res) => {
+    app.get('/*', (req, res) => {
         res.sendFile(
             path.join(__dirname, '../../frontend/dist/index.html')
         );
