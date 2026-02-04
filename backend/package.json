@@ -17,6 +17,7 @@
     "dotenv": "^17.2.3",
     "express": "^4.19.2",
     "inngest": "^3.50.0",
-    "mongoose": "^9.1.5"
+    "mongoose": "^9.1.5",
+    "stream-chat": "^9.31.0"
   }
 }
