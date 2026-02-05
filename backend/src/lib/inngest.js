@@ -2,6 +2,7 @@ import {Inngest} from "inngest"
 import {connectDB} from "./db.js"
 import User from "../modules/User.js"
 import { deleteStreamUser } from "./stream.js"
+import {upsertStreamUser} from './stream.js'
 
 
 export const inngest = new Inngest({id:"interview-portal"})
