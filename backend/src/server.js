@@ -7,17 +7,67 @@ import { ENV } from './lib/env.js';
 import { connectDB } from './lib/db.js';
 import { inngest, functions } from "./lib/inngest.js";
 import { fileURLToPath } from "url";
+import morgan from 'morgan'
+import { ClerkExpressWithAuth } from '@clerk/clerk-sdk-node';
+import { Webhook } from 'svix';
+import bodyParser from 'body-parser';
 
 const app = express();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+app.use(morgan("dev"));
 
 console.log(__dirname)
 
 
 // middleware
+app.post('/api/webhooks', bodyParser.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    console.log("Webhook received");
+    const payload = req.body;
+    const headers = req.headers;
+
+    const svix_id = headers["svix-id"];
+    const svix_timestamp = headers["svix-timestamp"];
+    const svix_signature = headers["svix-signature"];
+
+    if (!svix_id || !svix_timestamp || !svix_signature) {
+      return res.status(400).json({ error: "Error occurred -- no svix headers" });
+    }
+
+    const wh = new Webhook(process.env.CLERK_WEBHOOK_SECRET);
+    let evt;
+
+    try {
+      evt = wh.verify(payload, {
+        "svix-id": svix_id,
+        "svix-timestamp": svix_timestamp,
+        "svix-signature": svix_signature,
+      });
+    } catch (err) {
+      console.error('Error verifying webhook:', err);
+      return res.status(400).json({ 'Error': err.message });
+    }
+
+    const { id } = evt.data;
+    const eventType = evt.type;
+    console.log(`Webhook with an ID of ${id} and type of ${eventType}`);
+    console.log('Webhook body:', evt.data);
+
+    await inngest.send({
+      name: `clerk/${eventType}`,
+      data: evt.data,
+    });
+
+    res.status(200).json({ response: 'Success' });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.use(express.json());
 const allowedOrigins = [
   process.env.CLIENT_URL,
@@ -32,6 +82,10 @@ app.use(cors({
 
 // API routes
 app.use("/api/inngest", serve({ client: inngest, functions }));
+
+// Protected routes example - apply to specific routes or globally for /api
+app.use('/api', ClerkExpressWithAuth());
+
 
 app.get('/api', (req, res) => {
   res.json({ message: 'API working' });
