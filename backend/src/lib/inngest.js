@@ -47,6 +47,8 @@ const syncUser = inngest.createFunction(
 
 
         console.log(upstremres)
+
+        // Do this later : send a wlcome email here 
     }
 )
 
