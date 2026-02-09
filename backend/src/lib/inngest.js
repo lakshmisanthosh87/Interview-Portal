@@ -1,6 +1,6 @@
 import { Inngest } from "inngest"
 import { connectDB } from "./db.js"
-import User from "../modules/User.js"
+import User from "../models/User.js"
 import { deleteStreamUser } from "./stream.js"
 import { upsertStreamUser } from './stream.js'
 
