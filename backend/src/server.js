@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import cors from "cors";
 import { serve } from "inngest/express";
+import {clerkMiddleware}  from "@clerk/express"
 
 import { ENV } from './lib/env.js';
 import { connectDB } from './lib/db.js';
@@ -11,6 +12,8 @@ import morgan from 'morgan'
 import { ClerkExpressWithAuth } from '@clerk/clerk-sdk-node';
 import { Webhook } from 'svix';
 import bodyParser from 'body-parser';
+import { protectRoute } from './middleware/protectRoute.js';
+import chatRoutes from "./routes/chatRoutes.js"
 
 const app = express();
 
@@ -74,14 +77,26 @@ const allowedOrigins = [
   process.env.PROD_URL
 ];
 
+
+
+
 app.use(cors({
   origin: allowedOrigins,
   credentials: true
 }));
 
+app.use(clerkMiddleware()) //this adds auth fields to req body : req.auth()
+
 
 // API routes
 app.use("/api/inngest", serve({ client: inngest, functions }));
+
+app.use("/api/chat",chatRoutes)
+
+app.get("/health", (req,res)=>{
+  res.status(200).json({msg:"api is up and running"})
+})
+
 
 // Protected routes example - apply to specific routes or globally for /api
 app.use('/api', ClerkExpressWithAuth());
