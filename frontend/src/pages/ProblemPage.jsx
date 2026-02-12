@@ -16,6 +16,23 @@ function ProblemPage() {
   const { id } = useParams();
   const navigate = useNavigate();
 
+  // Map editor language keys to the keys used inside `problem.code_snippets`
+  const SNIPPET_LANG_KEY = {
+    javascript: "javascript",
+    typescript: "typescript",
+    python: "python3",
+    java: "java",
+    cpp: "cpp",
+    c: "c",
+    csharp: "csharp",
+    go: "golang",
+    rust: "rust",
+    php: "php",
+    ruby: "ruby",
+    kotlin: "kotlin",
+    swift: "swift",
+  };
+
   // Helper function to find problem by ID
   const findProblemById = (problemId) => {
     if (!problemId) return null;
@@ -27,6 +44,12 @@ function ProblemPage() {
     );
   };
 
+  const getSnippetForProblem = (problem, lang) => {
+    if (!problem?.code_snippets) return "";
+    const key = SNIPPET_LANG_KEY[lang] || lang;
+    return problem.code_snippets[key] || "";
+  };
+
   // Get initial problem ID from URL or default
   const getInitialProblemId = () => {
     if (id) {
@@ -36,9 +59,8 @@ function ProblemPage() {
       }
     }
     // Default to first problem or "two-sum" if exists
-    const defaultProblem = PROBLEMS.find(
-      (p) => p.frontend_id === "two-sum" || p.problem_id === "two-sum"
-    ) || PROBLEMS[0];
+    const defaultProblem =
+      PROBLEMS.find((p) => p.problem_slug === "two-sum") || PROBLEMS[0];
     return defaultProblem?.frontend_id || defaultProblem?.problem_id || defaultProblem?.problem_slug || "";
   };
 
@@ -57,11 +79,7 @@ function ProblemPage() {
       if (problem) {
         const problemId = problem.frontend_id || problem.problem_id || problem.problem_slug;
         setCurrentProblemId(problemId);
-        if (problem.starterCode && problem.starterCode[selectedLanguage]) {
-          setCode(problem.starterCode[selectedLanguage]);
-        } else {
-          setCode("");
-        }
+        setCode(getSnippetForProblem(problem, selectedLanguage));
         setOutput(null);
       }
     } else {
@@ -70,32 +88,15 @@ function ProblemPage() {
       if (defaultProblemId && defaultProblemId !== currentProblemId) {
         setCurrentProblemId(defaultProblemId);
         const problem = findProblemById(defaultProblemId);
-        if (problem?.starterCode?.[selectedLanguage]) {
-          setCode(problem.starterCode[selectedLanguage]);
-        } else {
-          setCode("");
-        }
+        setCode(getSnippetForProblem(problem, selectedLanguage));
       }
     }
   }, [id, selectedLanguage]);
 
-  // Initialize code when currentProblem changes (only if code is empty)
-  useEffect(() => {
-    if (currentProblem?.starterCode?.[selectedLanguage]) {
-      const starterCode = currentProblem.starterCode[selectedLanguage];
-      // Only set if code is empty or doesn't match the starter code
-      if (!code || code.trim() === "") {
-        setCode(starterCode);
-      }
-    }
-  }, [currentProblem?.frontend_id || currentProblem?.problem_id, selectedLanguage]);
-
   const handleLanguageChange = (e) => {
     const newLang = e.target.value;
     setSelectedLanguage(newLang);
-    if (currentProblem?.starterCode?.[newLang]) {
-      setCode(currentProblem.starterCode[newLang]);
-    }
+    setCode(getSnippetForProblem(currentProblem, newLang));
     setOutput(null);
   };
 
@@ -115,26 +116,6 @@ function ProblemPage() {
     });
   };
 
-  const normalizeOutput = (output) => {
-    if (output == null || output === undefined) return "";
-    const str = String(output);
-    // Remove leading/trailing whitespace, normalize line endings, and collapse multiple spaces
-    return str
-      .trim()
-      .replace(/\r\n/g, "\n")
-      .replace(/\r/g, "\n")
-      .replace(/\n+/g, "\n")
-      .replace(/[ \t]+/g, " ");
-  };
-
-  const checkIfTestsPassed = (actualOutput, expectedOutput) => {
-    if (actualOutput == null || expectedOutput == null) return false;
-    const normalizedActual = normalizeOutput(actualOutput);
-    const normalizedExpected = normalizeOutput(expectedOutput);
-
-    return normalizedActual === normalizedExpected;
-  };
-
   const handleRunCode = async () => {
     setIsRunning(true);
     setOutput(null);
@@ -143,20 +124,9 @@ function ProblemPage() {
     setOutput(result);
     setIsRunning(false);
 
-    // check if code executed successfully and matches expected output
-
     if (result.success) {
-      const expectedOutput = currentProblem?.expectedOutput?.[selectedLanguage];
-      const testsPassed = expectedOutput
-        ? checkIfTestsPassed(result.output, expectedOutput)
-        : false;
-
-      if (testsPassed) {
-        triggerConfetti();
-        toast.success("All tests passed! Great job!");
-      } else {
-        toast.error("Tests failed. Check your output!");
-      }
+      triggerConfetti();
+      toast.success("Code executed successfully!");
     } else {
       toast.error("Code execution failed!");
     }
@@ -204,7 +174,7 @@ function ProblemPage() {
               {/* Bottom panel - Output Panel*/}
 
               <Panel defaultSize={30} minSize={30}>
-                <OutputPanel output={output} />
+                <OutputPanel output={output} isRunning={isRunning} />
               </Panel>
             </PanelGroup>
           </Panel>
