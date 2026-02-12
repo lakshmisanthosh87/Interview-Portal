@@ -33,7 +33,7 @@ function ProblemPage() {
     swift: "swift",
   };
 
-  // Helper function to find problem by ID
+  // Helper function to find problem by ID/slug
   const findProblemById = (problemId) => {
     if (!problemId) return null;
     return PROBLEMS.find(
@@ -50,21 +50,29 @@ function ProblemPage() {
     return problem.code_snippets[key] || "";
   };
 
-  // Get initial problem ID from URL or default
+  // Get initial problem ID from URL or default to "two-sum"/first problem
   const getInitialProblemId = () => {
     if (id) {
       const problem = findProblemById(id);
       if (problem) {
-        return problem.frontend_id || problem.problem_id || problem.problem_slug;
+        return (
+          problem.frontend_id || problem.problem_id || problem.problem_slug
+        );
       }
     }
-    // Default to first problem or "two-sum" if exists
     const defaultProblem =
       PROBLEMS.find((p) => p.problem_slug === "two-sum") || PROBLEMS[0];
-    return defaultProblem?.frontend_id || defaultProblem?.problem_id || defaultProblem?.problem_slug || "";
+    return (
+      defaultProblem?.frontend_id ||
+      defaultProblem?.problem_id ||
+      defaultProblem?.problem_slug ||
+      ""
+    );
   };
 
-  const [currentProblemId, setCurrentProblemId] = useState(() => getInitialProblemId());
+  const [currentProblemId, setCurrentProblemId] = useState(() =>
+    getInitialProblemId()
+  );
   const [selectedLanguage, setSelectedLanguage] = useState("javascript");
   const [code, setCode] = useState("");
   const [output, setOutput] = useState(null);
@@ -72,24 +80,19 @@ function ProblemPage() {
 
   const currentProblem = findProblemById(currentProblemId);
 
-  // update problem when URL param changes
+  // update problem when URL param or selected language changes
   useEffect(() => {
-    if (id) {
-      const problem = findProblemById(id);
-      if (problem) {
-        const problemId = problem.frontend_id || problem.problem_id || problem.problem_slug;
-        setCurrentProblemId(problemId);
-        setCode(getSnippetForProblem(problem, selectedLanguage));
-        setOutput(null);
+    const problemFromRoute = id ? findProblemById(id) : currentProblem;
+    if (problemFromRoute) {
+      const newId =
+        problemFromRoute.frontend_id ||
+        problemFromRoute.problem_id ||
+        problemFromRoute.problem_slug;
+      if (newId !== currentProblemId) {
+        setCurrentProblemId(newId);
       }
-    } else {
-      // If no id in URL, use default
-      const defaultProblemId = getInitialProblemId();
-      if (defaultProblemId && defaultProblemId !== currentProblemId) {
-        setCurrentProblemId(defaultProblemId);
-        const problem = findProblemById(defaultProblemId);
-        setCode(getSnippetForProblem(problem, selectedLanguage));
-      }
+      setCode(getSnippetForProblem(problemFromRoute, selectedLanguage));
+      setOutput(null);
     }
   }, [id, selectedLanguage]);
 
@@ -100,7 +103,8 @@ function ProblemPage() {
     setOutput(null);
   };
 
-  const handleProblemChange = (newProblemId) => navigate(`/problem/${newProblemId}`);
+  const handleProblemChange = (newProblemId) =>
+    navigate(`/problem/${newProblemId}`);
 
   const triggerConfetti = () => {
     confetti({
@@ -172,9 +176,8 @@ function ProblemPage() {
               <PanelResizeHandle className="h-2 bg-base-300 hover:bg-primary transition-colors cursor-row-resize" />
 
               {/* Bottom panel - Output Panel*/}
-
               <Panel defaultSize={30} minSize={30}>
-                <OutputPanel output={output} isRunning={isRunning} />
+                <OutputPanel output={output} />
               </Panel>
             </PanelGroup>
           </Panel>
