@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { PROBLEMS } from "../data/Problems";
 import Navbar from "../components/Navbar";
@@ -6,112 +6,90 @@ import Navbar from "../components/Navbar";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import ProblemDescription from "../components/ProblemDescription";
 import OutputPanel from "../components/OutputPanel";
-import CodeEditor from "../components/CodeEditor";
+import CodeEditor from "../components/CodeEditorPanel";
+import { executeCode } from "../lib/piston";
 
-const allProblems = PROBLEMS;
-
-function findProblemByIdentifier(identifier) {
-  if (!identifier) return null;
-  const idStr = String(identifier);
-
-  return (
-    allProblems.find(
-      (p) =>
-        String(p.frontend_id) === idStr ||
-        String(p.problem_id) === idStr ||
-        p.problem_slug === identifier
-    ) || null
-  );
-}
-
-function getDefaultLanguageForProblem(problem) {
-  if (!problem || !problem.code_snippets) return "javascript";
-  const languages = Object.keys(problem.code_snippets);
-  if (languages.includes("javascript")) return "javascript";
-  if (languages.includes("python3")) return "python3";
-  if (languages.length > 0) return languages[0];
-  return "javascript";
-}
-
-function getProblemKey(problem) {
-  if (!problem) return "";
-  return problem.problem_slug || problem.frontend_id || problem.problem_id;
-}
+import toast from "react-hot-toast";
+import confetti from "canvas-confetti";
 
 function ProblemPage() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const initialProblem = useMemo(() => {
-    return findProblemByIdentifier(id) || allProblems[0] || null;
-  }, [id]);
-
-  const [currentProblemId, setCurrentProblemId] = useState(
-    getProblemKey(initialProblem)
-  );
-  const [selectedLanguage, setSelectedLanguage] = useState(
-    getDefaultLanguageForProblem(initialProblem)
-  );
-  const [code, setCode] = useState(() => {
-    if (!initialProblem || !initialProblem.code_snippets) return "";
-    const lang = getDefaultLanguageForProblem(initialProblem);
-    return initialProblem.code_snippets[lang] || "";
-  });
+  const [currentProblemId, setCurrentProblemId] = useState("two-sum");
+  const [selectedLanguage, setSelectedLanguage] = useState("javascript");
+  const [code, setCode] = useState(PROBLEMS[currentProblemId].starterCode.javascript);
   const [output, setOutput] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
 
-  const currentProblem = useMemo(
-    () => findProblemByIdentifier(currentProblemId),
-    [currentProblemId]
-  );
+  const currentProblem = PROBLEMS[currentProblemId];
 
-  // Keep state in sync when URL param changes
+  // update problem when URL param changes
   useEffect(() => {
-    const problemFromUrl = findProblemByIdentifier(id);
-    if (!problemFromUrl) return;
-
-    const key = getProblemKey(problemFromUrl);
-    const lang = getDefaultLanguageForProblem(problemFromUrl);
-
-    setCurrentProblemId(key);
-    setSelectedLanguage(lang);
-    setCode(problemFromUrl.code_snippets?.[lang] || "");
-    setOutput(null);
-  }, [id]);
-
-  const handleProblemChange = (newId) => {
-    const nextProblem = findProblemByIdentifier(newId);
-    if (!nextProblem) return;
-
-    const key = getProblemKey(nextProblem);
-    const lang = getDefaultLanguageForProblem(nextProblem);
-
-    setCurrentProblemId(key);
-    setSelectedLanguage(lang);
-    setCode(nextProblem.code_snippets?.[lang] || "");
-    setOutput(null);
-
-    navigate(`/problem/${key}`);
-  };
-
-  const handleLanguageChange = (newLanguage) => {
-    if (!currentProblem || !currentProblem.code_snippets) {
-      setSelectedLanguage(newLanguage);
-      return;
+    if (id && PROBLEMS[id]) {
+      setCurrentProblemId(id);
+      setCode(PROBLEMS[id].starterCode[selectedLanguage]);
+      setOutput(null);
     }
+  }, [id, selectedLanguage]);
 
-    setSelectedLanguage(newLanguage);
-    const snippet = currentProblem.code_snippets[newLanguage] || "";
-    setCode(snippet);
+  const handleLanguageChange = (e) => {
+    const newLang = e.target.value;
+    setSelectedLanguage(newLang);
+    setCode(currentProblem.starterCode[newLang]);
+    setOutput(null);
   };
 
-  const handleRunCode = () => {
-    // Wire up to piston executeCode later
+  const handleProblemChange = (newProblemId) => navigate(`/problem/${newProblemId}`);
+
+  const triggerConfetti = () => {
+    confetti({
+      particleCount: 80,
+      spread: 250,
+      origin: { x: 0.2, y: 0.6 },
+    });
+
+    confetti({
+      particleCount: 80,
+      spread: 250,
+      origin: { x: 0.8, y: 0.6 },
+    });
+  };
+
+  const normalizeOutput = () => {
+    
+  };
+
+  const checkIfTestsPassed = (actualOutput, expectedOutput) => {
+    const normalizedActual = normalizeOutput(actualOutput);
+    const normalizedExpected = normalizeOutput(expectedOutput);
+
+    return normalizedActual == normalizedExpected;
+  };
+
+  const handleRunCode = async () => {
     setIsRunning(true);
-    // Placeholder: immediately stop "running"
-    setTimeout(() => {
-      setIsRunning(false);
-    }, 100);
+    setOutput(null);
+
+    const result = await executeCode(selectedLanguage, code);
+    setOutput(result);
+    setIsRunning(false);
+
+    // check if code executed successfully and matches expected output
+
+    if (result.success) {
+      const expectedOutput = currentProblem.expectedOutput[selectedLanguage];
+      const testsPassed = checkIfTestsPassed(result.output, expectedOutput);
+
+      if (testsPassed) {
+        triggerConfetti();
+        toast.success("All tests passed! Great job!");
+      } else {
+        toast.error("Tests failed. Check your output!");
+      }
+    } else {
+      toast.error("Code execution failed!");
+    }
   };
 
   return (
@@ -126,7 +104,7 @@ function ProblemPage() {
               problem={currentProblem}
               currentProblemId={currentProblemId}
               onProblemChange={handleProblemChange}
-              allProblems={allProblems}
+              allProblems={Object.values(PROBLEMS)}
             />
           </Panel>
 
@@ -152,7 +130,7 @@ function ProblemPage() {
               {/* Bottom panel - Output Panel*/}
 
               <Panel defaultSize={30} minSize={30}>
-                <OutputPanel output={output} />
+                <OutputPanel  />
               </Panel>
             </PanelGroup>
           </Panel>
