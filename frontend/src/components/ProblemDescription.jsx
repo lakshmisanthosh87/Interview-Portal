@@ -24,6 +24,28 @@ function ProblemDescription({
       ? problem.description
       : problem.description?.text || "";
 
+  const topics = Array.isArray(problem.topics) ? problem.topics : [];
+  const hints = Array.isArray(problem.hints) ? problem.hints : [];
+
+  // Find similar problems that share at least one topic
+  const similarProblems =
+    Array.isArray(allProblems) && topics.length > 0
+      ? allProblems
+          .filter((p) => {
+            if (!p || p === problem) return false;
+            if (!Array.isArray(p.topics)) return false;
+            if (
+              (p.frontend_id && p.frontend_id === problem.frontend_id) ||
+              (p.problem_id && p.problem_id === problem.problem_id) ||
+              (p.problem_slug && p.problem_slug === problem.problem_slug)
+            ) {
+              return false;
+            }
+            return p.topics.some((t) => topics.includes(t));
+          })
+          .slice(0, 5)
+      : [];
+
   const descriptionParagraphs = descriptionText
     .split("\n")
     .map((p) => p.trim())
@@ -53,6 +75,38 @@ function ProblemDescription({
           </span>
         </div>
         <p className="text-base-content/60">{category}</p>
+
+        {/* Topics (tags) */}
+        {topics.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {topics.map((topic) => (
+              <span
+                key={topic}
+                className="badge badge-outline badge-sm px-3 py-1 text-xs"
+              >
+                {topic}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Hints section similar to LeetCode */}
+        {hints.length > 0 && (
+          <details className="mt-3 bg-base-200 rounded-lg p-3 border border-base-300">
+            <summary className="cursor-pointer text-sm font-semibold text-primary">
+              Hints
+            </summary>
+            <ul className="mt-2 space-y-2 text-sm text-base-content/80 list-disc list-inside">
+              {hints.map((hint, idx) => (
+                <li
+                  key={idx}
+                  // Hints may contain inline HTML like <code>, so we render it as HTML
+                  dangerouslySetInnerHTML={{ __html: hint }}
+                />
+              ))}
+            </ul>
+          </details>
+        )}
 
         {/* Problem selector */}
         <div className="mt-4">
@@ -121,6 +175,44 @@ function ProblemDescription({
               ))}
           </ul>
         </div>
+
+        {/* SIMILAR PROBLEMS */}
+        {similarProblems.length > 0 && (
+          <div className="bg-base-100 rounded-xl shadow-sm p-5 border border-base-300">
+            <h2 className="text-xl font-bold mb-4 text-base-content">Similar Problems</h2>
+            <ul className="space-y-2 text-sm">
+              {similarProblems.map((p) => {
+                const id =
+                  p.problem_slug || p.frontend_id || p.problem_id || p.title;
+                return (
+                  <li
+                    key={id}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-xs px-0 justify-start flex-1 text-left normal-case"
+                      onClick={() =>
+                        onProblemChange(
+                          p.problem_slug || p.frontend_id || p.problem_id
+                        )
+                      }
+                    >
+                      <span className="truncate">{p.title}</span>
+                    </button>
+                    <span
+                      className={`badge badge-outline ${getDifficultyBadgeClass(
+                        p.difficulty
+                      )}`}
+                    >
+                      {p.difficulty}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   );
