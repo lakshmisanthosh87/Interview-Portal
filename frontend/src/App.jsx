@@ -1,10 +1,11 @@
 
-import { SignInButton, SignOutButton, SignedIn, SignedOut, UserButton, useUser} from '@clerk/clerk-react'
+import { SignInButton, SignOutButton, SignedIn, SignedOut, UserButton, useUser } from '@clerk/clerk-react'
 import { Navigate, Route, Routes } from 'react-router'
 import HomePage from './pages/HomePage'
 import ProblemsPage from './pages/ProblemsPage'
 import DashboardPage from './pages/DashboardPage'
 import ProblemPage from './pages/ProblemPage'
+import SessionPage from './pages/SessionPage'
 import { Toaster } from 'react-hot-toast'
 
 
@@ -40,6 +41,12 @@ function App() {
 
         {/* Optional: if someone hits /problem without an id, send them to list */}
         <Route path="/problem" element={<Navigate to="/problems" />} />
+
+        {/* Session page with video call & collaborative editor */}
+        <Route
+          path="/session/:id"
+          element={isSignedIn ? <SessionPage /> : <Navigate to={"/"} />}
+        />
       </Routes>
 
       <Toaster/>
