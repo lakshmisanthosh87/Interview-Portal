@@ -12,6 +12,7 @@ import { executeCode } from "../lib/piston";
 import toast from "react-hot-toast";
 import confetti from "canvas-confetti";
 import AIAnalysisModal from "../components/AIAnalysisModal";
+import HintModal from '../components/HintModal';
 import axios from "axios";
 
 function ProblemPage() {
@@ -82,6 +83,9 @@ function ProblemPage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isFetchingHint, setIsFetchingHint] = useState(false);
+  const [hint, setHint] = useState("");
+  const [isHintModalOpen, setIsHintModalOpen] = useState(false);
 
   const currentProblem = findProblemById(currentProblemId);
 
@@ -164,6 +168,35 @@ function ProblemPage() {
     }
   };
 
+  const handleGetHint = async () => {
+    if (!code) {
+      toast.error("Please write some code first!");
+      return;
+    }
+    setIsFetchingHint(true);
+    try {
+      const res = await axios.post(
+        "http://localhost:5000/api/ai/hint",
+        {
+          code,
+          language: selectedLanguage,
+          problemDescription: currentProblem?.description || currentProblem?.problem_slug,
+        },
+        { withCredentials: true }
+      );
+
+      if (res.data.hint) {
+        setHint(res.data.hint);
+        setIsHintModalOpen(true);
+      }
+    } catch (error) {
+      console.error("Hint fetch failed:", error);
+      toast.error("Failed to get hint");
+    } finally {
+      setIsFetchingHint(false);
+    }
+  };
+
   return (
     <div className="h-screen bg-base-100 flex flex-col">
       <Navbar />
@@ -200,6 +233,8 @@ function ProblemPage() {
                   onRunCode={handleRunCode}
                   onAnalyze={handleAnalyze}
                   isAnalyzing={isAnalyzing}
+                  onGetHint={handleGetHint}
+                  isFetchingHint={isFetchingHint}
                 />
               </Panel>
 
@@ -217,6 +252,11 @@ function ProblemPage() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         analysis={analysisResult}
+      />
+      <HintModal
+        isOpen={isHintModalOpen}
+        onClose={() => setIsHintModalOpen(false)}
+        hint={hint}
       />
     </div>
   );

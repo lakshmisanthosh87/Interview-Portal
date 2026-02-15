@@ -74,3 +74,45 @@ export const getAICodeReview = async (req, res) => {
         res.status(500).json({ error: "Internal Server Error" });
     }
 };
+
+export const getAIHint = async (req, res) => {
+    const { code, language, problemDescription } = req.body;
+
+    if (!code || !language) {
+        return res.status(400).json({ error: "Code and language are required" });
+    }
+
+    try {
+        const prompt = `
+      You are a senior technical interviewer helping a candidate.
+
+      The candidate is solving a problem and needs a hint.
+      
+      Your goal is to explain the **core logic** without giving the full code.
+      
+      **Requirements for your response:**
+      1. **Explain the Logic**: Clearly explain the idea (e.g., "Use two pointers," "Track the product of prefix," etc.).
+      2. **Numeric Example**: Show a step-by-step walkthough with small numbers.
+      3. **Visual Explanation**: Use simple ASCII or text visualization (e.g., [1, 2, 3] -> [1, 1*1, 1*2]) to show how data changes.
+      4. **Conciseness**: Keep it brief but helpful. Do not write the full function code.
+
+      If the user's code is "Product of Array Except Self", specifically explain the "Prefix and Suffix product" idea visually.
+
+      Problem:
+      ${problemDescription || "Not provided"}
+
+      Candidate's Current Code (Language: ${language}):
+      ${code} 
+    `;
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
+
+        res.status(200).json({ hint: text });
+
+    } catch (error) {
+        console.error("Error in getAIHint:", error);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+};

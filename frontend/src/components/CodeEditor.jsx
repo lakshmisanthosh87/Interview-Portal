@@ -10,7 +10,9 @@ function CodeEditor({
   onCodeChange,
   onRunCode,
   onAnalyze,
-  isAnalyzing
+  isAnalyzing,
+  onGetHint,
+  isFetchingHint
 }) {
   return (
     <div className="h-full bg-base-300 flex flex-col">
@@ -57,6 +59,20 @@ function CodeEditor({
           ) : (
             <>
               ✨ Analyze Solution
+            </>
+          )}
+        </button>
+
+        <button
+          className="btn btn-ghost btn-sm gap-2 ml-2 border border-base-300"
+          disabled={isFetchingHint || isRunning}
+          onClick={onGetHint}
+        >
+          {isFetchingHint ? (
+            <Loader2Icon className="size-4 animate-spin" />
+          ) : (
+            <>
+              💡 Get Hint
             </>
           )}
         </button>

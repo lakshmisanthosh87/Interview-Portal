@@ -11,7 +11,7 @@ const AIAnalysisModal = ({ isOpen, onClose, analysis }) => {
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-base-100 rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col border border-base-300">
+            <div className="bg-base-100 rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col border border-base-300">
 
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-base-300">
@@ -27,29 +27,13 @@ const AIAnalysisModal = ({ isOpen, onClose, analysis }) => {
                 <div className="flex-1 overflow-y-auto p-6 space-y-6">
 
                     {/* Summary Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div className="stat bg-base-200 rounded-lg p-4">
-                            <div className="stat-figure text-primary">
-                                <Clock className="w-8 h-8 opacity-50" />
-                            </div>
-                            <div className="stat-title">Time Complexity</div>
-                            <div className="stat-value text-lg font-mono">{analysis.timeComplexity}</div>
-                        </div>
-
-                        <div className="stat bg-base-200 rounded-lg p-4">
-                            <div className="stat-figure text-secondary">
-                                <Database className="w-8 h-8 opacity-50" />
-                            </div>
-                            <div className="stat-title">Space Complexity</div>
-                            <div className="stat-value text-lg font-mono">{analysis.spaceComplexity}</div>
-                        </div>
-
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="stat bg-base-200 rounded-lg p-4">
                             <div className="stat-figure text-accent">
                                 <Code className="w-8 h-8 opacity-50" />
                             </div>
                             <div className="stat-title">Code Quality</div>
-                            <div className={`stat-value text-lg ${getScoreColor(analysis.codeQualityScore)}`}>
+                            <div className={`stat-value text-3xl ${getScoreColor(analysis.codeQualityScore)}`}>
                                 {analysis.codeQualityScore}/10
                             </div>
                         </div>
@@ -59,9 +43,25 @@ const AIAnalysisModal = ({ isOpen, onClose, analysis }) => {
                                 <BookOpen className="w-8 h-8 opacity-50" />
                             </div>
                             <div className="stat-title">Readability</div>
-                            <div className={`stat-value text-lg ${getScoreColor(analysis.readabilityScore)}`}>
+                            <div className={`stat-value text-3xl ${getScoreColor(analysis.readabilityScore)}`}>
                                 {analysis.readabilityScore}/10
                             </div>
+                        </div>
+
+                        <div className="stat bg-base-200 rounded-lg p-4 col-span-1 md:col-span-2">
+                            <div className="stat-figure text-primary">
+                                <Clock className="w-8 h-8 opacity-50" />
+                            </div>
+                            <div className="stat-title">Time Complexity</div>
+                            <div className="text-base font-mono mt-1 whitespace-pre-wrap break-words">{analysis.timeComplexity}</div>
+                        </div>
+
+                        <div className="stat bg-base-200 rounded-lg p-4 col-span-1 md:col-span-2">
+                            <div className="stat-figure text-secondary">
+                                <Database className="w-8 h-8 opacity-50" />
+                            </div>
+                            <div className="stat-title">Space Complexity</div>
+                            <div className="text-base font-mono mt-1 whitespace-pre-wrap break-words">{analysis.spaceComplexity}</div>
                         </div>
                     </div>
 
