@@ -38,11 +38,12 @@ function SessionPage() {
     isParticipant
   );
 
-  // find the problem data based on session problem title
+  // find the problem data based on session problem title OR custom problem data
   console.log("Session Data:", session);
-  const problemData = session?.problem
-    ? Object.values(PROBLEMS).find((p) => p.title === session.problem)
-    : null;
+  const problemData = session?.customProblemId
+    ? session.customProblemId // Use populated custom problem data
+    : (session?.problem ? Object.values(PROBLEMS).find((p) => p.title === session.problem) : null);
+
   console.log("Problem Data Found:", problemData);
 
   const [selectedLanguage, setSelectedLanguage] = useState("javascript");

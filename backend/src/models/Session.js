@@ -6,6 +6,11 @@ const sessionSchema = new mongoose.Schema({
         required: true
 
     },
+    customProblemId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Problem",
+        default: null
+    },
 
     difficulty: {
         type: String,

@@ -6,7 +6,7 @@ import { chatClient, streamClient } from "../lib/stream.js"
 
 export async function createSession(req, res) {
     try {
-        const { problem, difficulty } = req.body
+        const { problem, difficulty, customProblemId } = req.body
         const userId = req.user._id
         const clerkId = req.user.clerkId
 
@@ -18,19 +18,25 @@ export async function createSession(req, res) {
         const callId = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`
 
         // create session in db first
-        const session = await Session.create({ problem, difficulty, host: userId, callId })
+        const session = await Session.create({
+            problem,
+            difficulty,
+            host: userId,
+            callId,
+            customProblemId: customProblemId || null
+        })
 
         // Try to create stream video call (don't fail if Stream API fails)
         try {
-            await streamClient.video.call("default", callId).getOrCreate({ 
-                data: { 
-                    created_by_id: clerkId, 
-                    custom: { 
-                        problem, 
-                        difficulty, 
-                        sessionId: session._id.toString() 
-                    } 
-                } 
+            await streamClient.video.call("default", callId).getOrCreate({
+                data: {
+                    created_by_id: clerkId,
+                    custom: {
+                        problem,
+                        difficulty,
+                        sessionId: session._id.toString()
+                    }
+                }
             })
         } catch (streamError) {
             console.log("Warning: Failed to create Stream video call:", streamError.message)
@@ -104,6 +110,7 @@ export async function getSessionById(req, res) {
         const session = await Session.findById(id)
             .populate("host", "name email profilImage clerkId")
             .populate("participant", "name email profileImage clerkId")
+            .populate("customProblemId")
 
         if (!session) {
             return res.status(404).json({ message: "Session not found" })
@@ -131,12 +138,12 @@ export async function joinSession(req, res) {
             return res.status(404).json({ message: "Session not found" })
         }
 
-        if(session.status !== "active"){
-            return res.status(400).json({message:"cannot join a completed session"})
+        if (session.status !== "active") {
+            return res.status(400).json({ message: "cannot join a completed session" })
         }
 
-        if(session.host.toString()== userId.toString()){
-            return res.status(400).json({message:"Host cannot join their own session as participant"})
+        if (session.host.toString() == userId.toString()) {
+            return res.status(400).json({ message: "Host cannot join their own session as participant" })
         }
         // check if session is already full
         if (session.participant) {
@@ -174,7 +181,7 @@ export async function endSession(req, res) {
             return res.status(400).json({ message: "Session is already completed" })
         }
 
-        
+
         const call = streamClient.video.call("default", session.callId)
         await call.delete({ hard: true })
 

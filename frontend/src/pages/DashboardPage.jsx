@@ -21,13 +21,16 @@ function DashboardPage() {
   const { data: activeSessionsData, isLoading: loadingActiveSessions } = useActiveSessions();
   const { data: recentSessionsData, isLoading: loadingRecentSessions } = useMyRecentSessions();
 
-  const handleCreateRoom = () => {
-    if (!roomConfig.problem || !roomConfig.difficulty) return;
+  const handleCreateRoom = (customConfig) => {
+    const config = (customConfig && customConfig.problem) ? customConfig : roomConfig;
+
+    if (!config.problem || !config.difficulty) return;
 
     createSessionMutation.mutate(
       {
-        problem: roomConfig.problem,
-        difficulty: roomConfig.difficulty.toLowerCase(),
+        problem: config.problem,
+        difficulty: config.difficulty.toLowerCase(),
+        customProblemId: config.customProblemId,
       },
       {
         onSuccess: (data) => {
