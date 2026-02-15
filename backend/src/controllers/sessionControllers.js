@@ -10,35 +10,53 @@ export async function createSession(req, res) {
         const userId = req.user._id
         const clerkId = req.user.clerkId
 
-        if (!problem || difficulty) {
+        if (!problem || !difficulty) {
             return res.status(400).json({ message: "problem and difficulty are required" })
         }
 
         // generate a unique call id for stream video
         const callId = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`
 
-        // create session in db
+        // create session in db first
         const session = await Session.create({ problem, difficulty, host: userId, callId })
 
-        //create stream video call
-        await streamClient.video.call("default", callId).getOrCreate({ data: { created_by_id: clerkId, custom: { problem, difficulty, sessionId: session._id.toString() } } })
+        // Try to create stream video call (don't fail if Stream API fails)
+        try {
+            await streamClient.video.call("default", callId).getOrCreate({ 
+                data: { 
+                    created_by_id: clerkId, 
+                    custom: { 
+                        problem, 
+                        difficulty, 
+                        sessionId: session._id.toString() 
+                    } 
+                } 
+            })
+        } catch (streamError) {
+            console.log("Warning: Failed to create Stream video call:", streamError.message)
+            // Continue even if Stream video call fails
+        }
 
-        //chat messaging
+        // Try to create chat channel (don't fail if Stream API fails)
+        try {
+            const channel = chatClient.channel("messaging", callId, {
+                name: `${problem} Session`,
+                created_by_id: clerkId,
+                members: [clerkId]
+            })
 
-        const channel = chatClient.channel("message", callId, {
-            name: `${problem} Session`,
-            created_by_id: clerkId,
-            members: [clerkId]
-        })
-
-        await channel.create()
+            await channel.create()
+        } catch (chatError) {
+            console.log("Warning: Failed to create Stream chat channel:", chatError.message)
+            // Continue even if Stream chat channel fails
+        }
 
         res.status(201).json({ session: session })
 
-
     } catch (error) {
         console.log("Error in createSession controller:", error.message)
-        res.status(500).json({ message: "internal server error" })
+        console.log("Full error:", error)
+        res.status(500).json({ message: "internal server error", error: error.message })
 
     }
 }
@@ -87,8 +105,9 @@ export async function getSessionById(req, res) {
             .populate("host", "name email profilImage clerkId")
             .populate("participant", "name email profileImage clerkId")
 
-        if (!session) return
-        res.status(404).json({ message: "Session not found" })
+        if (!session) {
+            return res.status(404).json({ message: "Session not found" })
+        }
 
         res.status(200).json({ session })
 
@@ -108,8 +127,9 @@ export async function joinSession(req, res) {
 
         const session = await Session.findById(id)
 
-        if (!session) return
-        res.status(404).json({ message: "Session not found" })
+        if (!session) {
+            return res.status(404).json({ message: "Session not found" })
+        }
 
         if(session.status !== "active"){
             return res.status(400).json({message:"cannot join a completed session"})
@@ -119,8 +139,9 @@ export async function joinSession(req, res) {
             return res.status(400).json({message:"Host cannot join their own session as participant"})
         }
         // check if session is already full
-        if (session.participant) return
-        res.status(409).json({ message: "session is full" })
+        if (session.participant) {
+            return res.status(409).json({ message: "session is full" })
+        }
 
         session.participant = userId
         await session.save()
@@ -141,8 +162,9 @@ export async function endSession(req, res) {
         const userId = req.user._id
         const session = await Session.findById(id)
 
-        if (!session) return
-        res.status(404).json({ message: "Session not found" })
+        if (!session) {
+            return res.status(404).json({ message: "Session not found" })
+        }
 
         if (session.host.toString() !== userId.toString()) {
             return res.status(403).json({ message: "only the host can end the session" })

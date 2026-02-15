@@ -11,6 +11,8 @@ import { executeCode } from "../lib/piston";
 
 import toast from "react-hot-toast";
 import confetti from "canvas-confetti";
+import AIAnalysisModal from "../components/AIAnalysisModal";
+import axios from "axios";
 
 function ProblemPage() {
   const { id } = useParams();
@@ -77,6 +79,9 @@ function ProblemPage() {
   const [code, setCode] = useState("");
   const [output, setOutput] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const currentProblem = findProblemById(currentProblemId);
 
@@ -136,6 +141,29 @@ function ProblemPage() {
     }
   };
 
+  const handleAnalyze = async () => {
+    if (!code) {
+      toast.error("Please write some code first!");
+      return;
+    }
+    setIsAnalyzing(true);
+    try {
+      const res = await axios.post("http://localhost:5000/api/ai/analyze", {
+        code,
+        language: selectedLanguage,
+        problemDescription: currentProblem?.description || currentProblem?.problem_slug // fallback if description missing
+      }, { withCredentials: true }); // Ensure cookies for auth are sent if needed, though this route might not be auth protected strictly yet or assumes cookie auth
+
+      setAnalysisResult(res.data);
+      setIsModalOpen(true);
+    } catch (error) {
+      console.error("Analysis failed:", error);
+      toast.error(error.response?.data?.error || "Failed to analyze code");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   return (
     <div className="h-screen bg-base-100 flex flex-col">
       <Navbar />
@@ -170,6 +198,8 @@ function ProblemPage() {
                   onLanguageChange={handleLanguageChange}
                   onCodeChange={setCode}
                   onRunCode={handleRunCode}
+                  onAnalyze={handleAnalyze}
+                  isAnalyzing={isAnalyzing}
                 />
               </Panel>
 
@@ -183,6 +213,11 @@ function ProblemPage() {
           </Panel>
         </PanelGroup>
       </div>
+      <AIAnalysisModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        analysis={analysisResult}
+      />
     </div>
   );
 }

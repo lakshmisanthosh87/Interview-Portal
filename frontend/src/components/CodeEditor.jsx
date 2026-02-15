@@ -9,6 +9,8 @@ function CodeEditor({
   onLanguageChange,
   onCodeChange,
   onRunCode,
+  onAnalyze,
+  isAnalyzing
 }) {
   return (
     <div className="h-full bg-base-300 flex flex-col">
@@ -38,6 +40,23 @@ function CodeEditor({
             <>
               <PlayIcon className="size-4" />
               Run Code
+            </>
+          )}
+        </button>
+
+        <button
+          className="btn btn-secondary btn-sm gap-2 ml-2"
+          disabled={isAnalyzing || isRunning}
+          onClick={onAnalyze}
+        >
+          {isAnalyzing ? (
+            <>
+              <Loader2Icon className="size-4 animate-spin" />
+              Analyzing...
+            </>
+          ) : (
+            <>
+              ✨ Analyze Solution
             </>
           )}
         </button>
