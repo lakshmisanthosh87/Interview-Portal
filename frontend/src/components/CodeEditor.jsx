@@ -12,7 +12,8 @@ function CodeEditor({
   onAnalyze,
   isAnalyzing,
   onGetHint,
-  isFetchingHint
+  isFetchingHint,
+  readOnly
 }) {
   return (
     <div className="h-full bg-base-300 flex flex-col">
@@ -32,7 +33,7 @@ function CodeEditor({
           </select>
         </div>
 
-        <button className="btn btn-primary btn-sm gap-2" disabled={isRunning} onClick={onRunCode}>
+        <button className="btn btn-primary btn-sm gap-2" disabled={isRunning || readOnly} onClick={onRunCode}>
           {isRunning ? (
             <>
               <Loader2Icon className="size-4 animate-spin" />
@@ -48,7 +49,7 @@ function CodeEditor({
 
         <button
           className="btn btn-secondary btn-sm gap-2 ml-2"
-          disabled={isAnalyzing || isRunning}
+          disabled={isAnalyzing || isRunning || readOnly}
           onClick={onAnalyze}
         >
           {isAnalyzing ? (
@@ -65,7 +66,7 @@ function CodeEditor({
 
         <button
           className="btn btn-ghost btn-sm gap-2 ml-2 border border-base-300"
-          disabled={isFetchingHint || isRunning}
+          disabled={isFetchingHint || isRunning || readOnly}
           onClick={onGetHint}
         >
           {isFetchingHint ? (
@@ -91,6 +92,7 @@ function CodeEditor({
             scrollBeyondLastLine: false,
             automaticLayout: true,
             minimap: { enabled: false },
+            readOnly: readOnly,
           }}
         />
       </div>

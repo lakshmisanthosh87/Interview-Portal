@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router";
 import { PROBLEMS } from "../data/Problems";
 import Navbar from "../components/Navbar";
+import { Clock, Timer, AlertTriangle } from "lucide-react";
 
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import ProblemDescription from "../components/ProblemDescription";
@@ -87,7 +88,70 @@ function ProblemPage() {
   const [hint, setHint] = useState("");
   const [isHintModalOpen, setIsHintModalOpen] = useState(false);
 
+  // Timer State
+  const [timerEnabled, setTimerEnabled] = useState(false);
+  const [timerDuration, setTimerDuration] = useState(30); // minutes
+  const [timeLeft, setTimeLeft] = useState(30 * 60); // seconds
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [isReadOnly, setIsReadOnly] = useState(false);
+
+  const timerRef = useRef(null);
+
   const currentProblem = findProblemById(currentProblemId);
+
+  // Timer Logic
+  useEffect(() => {
+    if (isTimerRunning && timeLeft > 0) {
+      timerRef.current = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current);
+            setIsTimerRunning(false);
+            setIsReadOnly(true);
+            toast.error("Time is Up! Editor is locked.");
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(timerRef.current);
+    }
+
+    return () => clearInterval(timerRef.current);
+  }, [isTimerRunning]);
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const handleTimerToggle = () => {
+    const newEnabled = !timerEnabled;
+    setTimerEnabled(newEnabled);
+    if (newEnabled) {
+      setIsTimerRunning(true);
+      setIsReadOnly(false);
+      setTimeLeft(timerDuration * 60);
+    } else {
+      setIsTimerRunning(false);
+      setIsReadOnly(false);
+      setTimeLeft(timerDuration * 60);
+    }
+  };
+
+  const handleDurationChange = (e) => {
+    const minutes = parseInt(e.target.value);
+    setTimerDuration(minutes);
+    if (!isTimerRunning) {
+      setTimeLeft(minutes * 60);
+    } else {
+      // If running, do we reset? The requirements say "Start countdown immediately" on enable.
+      // If user changes duration while running, let's reset to new duration for simplicity and correctness.
+      setTimeLeft(minutes * 60);
+    }
+  };
 
   // update problem when URL param or selected language changes
   useEffect(() => {
@@ -202,7 +266,59 @@ function ProblemPage() {
       <Navbar />
 
       {/* Main split area: prevent page scroll, let panels handle their own scrolling */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden flex flex-col">
+        {/* Timer Control Bar */}
+        <div className="bg-base-100 border-b border-base-300 px-6 py-2 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <label className="label cursor-pointer gap-2">
+              <span className="label-text font-medium flex items-center gap-2">
+                <Timer className="size-4" />
+                Enable Timer
+              </span>
+              <input
+                type="checkbox"
+                className="checkbox checkbox-primary checkbox-sm"
+                checked={timerEnabled}
+                onChange={handleTimerToggle}
+              />
+            </label>
+
+            {timerEnabled && (
+              <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-4 duration-300">
+                <select
+                  className="select select-bordered select-sm"
+                  value={timerDuration}
+                  onChange={handleDurationChange}
+                  disabled={timeLeft === 0 && isReadOnly} // Disable changing duration when time is up? or allow reset? Allow reset by toggling off/on usually.
+                >
+                  <option value={15}>15 Minutes</option>
+                  <option value={30}>30 Minutes</option>
+                  <option value={45}>45 Minutes</option>
+                  <option value={60}>60 Minutes</option>
+                </select>
+
+                <div className={`font-mono text-xl font-bold ml-4 ${timeLeft < 120 ? "text-error animate-pulse" : "text-primary"
+                  }`}>
+                  {formatTime(timeLeft)}
+                </div>
+
+                {timeLeft < 300 && timeLeft > 0 && (
+                  <div className="text-warning text-xs flex items-center gap-1">
+                    <AlertTriangle className="size-3" />
+                    Less than 5m left!
+                  </div>
+                )}
+
+                {timeLeft === 0 && (
+                  <div className="text-error text-sm font-bold">
+                    Time's Up!
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
         <PanelGroup direction="horizontal">
           {/* left panel- problem desc */}
           <Panel defaultSize={40} minSize={30}>
@@ -235,6 +351,7 @@ function ProblemPage() {
                   isAnalyzing={isAnalyzing}
                   onGetHint={handleGetHint}
                   isFetchingHint={isFetchingHint}
+                  readOnly={isReadOnly}
                 />
               </Panel>
 
