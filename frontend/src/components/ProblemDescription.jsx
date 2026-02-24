@@ -31,19 +31,19 @@ function ProblemDescription({
   const similarProblems =
     Array.isArray(allProblems) && topics.length > 0
       ? allProblems
-          .filter((p) => {
-            if (!p || p === problem) return false;
-            if (!Array.isArray(p.topics)) return false;
-            if (
-              (p.frontend_id && p.frontend_id === problem.frontend_id) ||
-              (p.problem_id && p.problem_id === problem.problem_id) ||
-              (p.problem_slug && p.problem_slug === problem.problem_slug)
-            ) {
-              return false;
-            }
-            return p.topics.some((t) => topics.includes(t));
-          })
-          .slice(0, 5)
+        .filter((p) => {
+          if (!p || p === problem) return false;
+          if (!Array.isArray(p.topics)) return false;
+          if (
+            (p.frontend_id && p.frontend_id === problem.frontend_id) ||
+            (p.problem_id && p.problem_id === problem.problem_id) ||
+            (p.problem_slug && p.problem_slug === problem.problem_slug)
+          ) {
+            return false;
+          }
+          return p.topics.some((t) => topics.includes(t));
+        })
+        .slice(0, 5)
       : [];
 
   const descriptionParagraphs = descriptionText

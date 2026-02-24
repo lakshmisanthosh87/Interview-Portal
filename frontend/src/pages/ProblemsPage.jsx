@@ -10,9 +10,9 @@ function ProblemsPage() {
   // `PROBLEMS` is already an array of problem objects
   const problems = PROBLEMS;
 
-  // -----------------------------
+
   // PAGINATION LOGIC
-  // -----------------------------
+
   const [currentPage, setCurrentPage] = useState(1);
   const problemsPerPage = 15; // change to 20 if needed
 
@@ -21,9 +21,8 @@ function ProblemsPage() {
   const endIndex = startIndex + problemsPerPage;
   const currentProblems = problems.slice(startIndex, endIndex);
 
-  // -----------------------------
   // STATS
-  // -----------------------------
+
   const easyProblemsCount = problems.filter(p => p.difficulty === "Easy").length;
   const mediumProblemsCount = problems.filter(p => p.difficulty === "Medium").length;
   const hardProblemsCount = problems.filter(p => p.difficulty === "Hard").length;

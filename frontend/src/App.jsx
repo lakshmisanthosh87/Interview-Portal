@@ -10,13 +10,13 @@ import { Toaster } from 'react-hot-toast'
 
 
 function App() {
-  const {isSignedIn, isLoaded}= useUser()
+  const { isSignedIn, isLoaded } = useUser()
 
-  if(!isLoaded) return null
+  if (!isLoaded) return null
 
   return (
     <>
-      
+
       <Routes>
         <Route
           path="/"
@@ -49,7 +49,7 @@ function App() {
         />
       </Routes>
 
-      <Toaster/>
+      <Toaster />
     </>
   )
 }
