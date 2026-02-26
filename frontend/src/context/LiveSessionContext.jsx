@@ -103,21 +103,6 @@ export const LiveSessionProvider = ({ children }) => {
     autoRejoin();
   }, [isUserLoaded, user, activeSessionId, isLive, isJoining, isMinimized]);
 
-    /*
-     ### 6. Real-time Code Collaboration
-    - **Instant Sync**: Uses Stream Chat custom events to broadcast code changes to all participants with a 500ms debounce to optimize performance.
-    - **Language Sync**: Switching the programming language now syncs the selection and the respective starter code for all users in the session.
-    - **Participation Sync**: When a participant joins, they automatically sync with the host's current code state.
-
-    ### 7. Join Reliability & UI Fallbacks
-    - **Retry Logic**: If a video call fails to connect (e.g., due to missing API keys on Render), the app now stops the infinite loop of errors and displays a clear "Connection Failed" card with a **Retry Connection** button.
-    - **Zero-Remount SDK**: SDK providers are now scoped to the video components, preventing the whole app from restarting on session join.
-
-    ## Verification Steps Taken
-    - Implemented `joinError` state to break infinite toast loops.
-    - Added code and language synchronization using Stream's event system.
-    - Verified local `.env` values are correct; provided steps for Render env updates.
-    */
     const joinSession = async (session, isHost, isParticipant) => {
         if (!session?.callId || !user?.id) return;
         if ((activeSessionId === session._id && isLive) || isJoining || isInitializingCall) return;
