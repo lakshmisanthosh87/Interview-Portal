@@ -27,6 +27,10 @@ const sessionSchema = new mongoose.Schema({
         ref: "User",
         default: null
     },
+    participants: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User"
+    }],
     status: {
         type: String,
         enum: ["active", "completed"],

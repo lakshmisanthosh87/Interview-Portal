@@ -9,6 +9,7 @@ import StatsCards from "../components/StatsCards";
 import ActiveSession from "../components/ActiveSession";
 import RecentSessions from "../components/RecentSessions";
 import CreateSessionModal from "../components/CreateSessionModal";
+import DashboardSearch from "../components/DashboardSearch";
 
 function DashboardPage() {
   const navigate = useNavigate();
@@ -58,6 +59,7 @@ function DashboardPage() {
 
         {/* Grid layout */}
         <div className="container mx-auto px-6 pb-16">
+          <DashboardSearch />
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <StatsCards
               activeSessionsCount={activeSessions.length}

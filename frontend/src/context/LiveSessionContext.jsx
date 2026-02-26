@@ -1,17 +1,21 @@
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useRef } from "react";
 import { StreamChat } from "stream-chat";
 import toast from "react-hot-toast";
 import { initializeStreamClient, disconnectStreamClient } from "../lib/stream";
 import { sessionApi } from "../api/session";
 import { useUser } from "@clerk/clerk-react";
+import { StreamVideo, StreamCall } from "@stream-io/video-react-sdk";
 
 const LiveSessionContext = createContext();
 
 export const LiveSessionProvider = ({ children }) => {
-    const { user, isLoaded: isUserLoaded } = useUser();
-    const [activeSessionId, setActiveSessionId] = useState(() => localStorage.getItem("activeSessionId"));
+  const { user, isLoaded: isUserLoaded } = useUser();
+  const tabId = useRef(Math.random().toString(36).slice(2)); // Added for tab-lock
+  
+  const [activeSessionId, setActiveSessionId] = useState(() => localStorage.getItem("activeSessionId"));
     const [sessionData, setSessionData] = useState(null);
     const [isLive, setIsLive] = useState(false);
+    const [isJoining, setIsJoining] = useState(false);
     const [isMinimized, setIsMinimized] = useState(() => localStorage.getItem("isMinimized") === "true");
 
     const [streamClient, setStreamClient] = useState(null);
@@ -47,46 +51,103 @@ export const LiveSessionProvider = ({ children }) => {
         return () => window.removeEventListener("storage", handleStorageChange);
     }, []);
 
-    // Auto-rejoin session on mount/auth
+    // Monitor tab ownership: if another tab steals the session lock, this tab should back off
     useEffect(() => {
-        const autoRejoin = async () => {
-            if (!isUserLoaded || !user || !activeSessionId || isLive || isInitializingCall) return;
-
-            try {
-                const { session } = await sessionApi.getSessionById(activeSessionId);
-                if (session && session.status === "active") {
-                    const isHost = session.host?.clerkId === user.id;
-                    const isParticipant = session.participant?.clerkId === user.id;
-
-                    if (isHost || isParticipant) {
-                        await joinSession(session, isHost, isParticipant);
-                    } else {
-                        // If user is no longer part of the session, clear it
-                        leaveSession();
-                    }
-                } else {
-                    leaveSession();
+        const checkOwnership = (e) => {
+            if (!activeSessionId || !user?.id) return;
+            const lockKey = `session_owner_${activeSessionId}_${user.id}`;
+            
+            if (e.key === lockKey && e.newValue && e.newValue !== tabId.current) {
+                if (isLive) {
+                    console.log("[LiveSession] Ownership moved to another tab. Backing off safely.");
+                    leaveSession(true); // Safely back off locally
                 }
-            } catch (error) {
-                console.error("Auto-rejoin failed:", error);
-                leaveSession();
             }
         };
+        window.addEventListener("storage", checkOwnership);
+        return () => window.removeEventListener("storage", checkOwnership);
+    }, [activeSessionId, user, isLive]);
 
-        autoRejoin();
-    }, [isUserLoaded, user, activeSessionId, isLive]);
+  // Auto-rejoin session on mount/auth
+  useEffect(() => {
+    const autoRejoin = async () => {
+      if (!isUserLoaded || !user || !activeSessionId || isLive || isJoining || isInitializingCall) return;
+
+      const isOnSessionPage = window.location.pathname.startsWith("/session/");
+      
+      // Only auto-rejoin in background if it's already minimized
+      // OR if we are literally on the session page
+      if (!isMinimized && !isOnSessionPage) return;
+
+      try {
+        const { session } = await sessionApi.getSessionById(activeSessionId);
+        if (session && session.status === "active") {
+          const isHost = session.host?.clerkId === user.id;
+          const isParticipant = session.participant?.clerkId === user.id;
+          
+          if (isHost || isParticipant) {
+             await joinSession(session, isHost, isParticipant);
+          } else {
+             leaveSession();
+          }
+        } else {
+          leaveSession();
+        }
+      } catch (error) {
+        console.error("Auto-rejoin failed:", error);
+        leaveSession();
+      }
+    };
+
+    autoRejoin();
+  }, [isUserLoaded, user, activeSessionId, isLive, isJoining, isMinimized]);
 
     const joinSession = async (session, isHost, isParticipant) => {
-        if (!session?.callId) return;
-        if (activeSessionId === session._id && isLive) return;
+        if (!session?.callId || !user?.id) return;
+        if ((activeSessionId === session._id && isLive) || isJoining || isInitializingCall) return;
 
+        // Ensure we clean up any old call before joining a new one
+        if (call) {
+           console.log("[LiveSession] Cleaning up existing call before new join...");
+           try {
+              await call.leave();
+              setCall(null);
+              // Safety delay for same-tab hardware release
+              await new Promise(resolve => setTimeout(resolve, 500));
+           } catch (e) {
+              console.error("[LiveSession] Error leaving old call", e);
+           }
+        }
+
+        // Tab-lock: only one tab per UNIQUE USER per session
+        const lockKey = `session_owner_${session._id}_${user?.id}`;
+        const currentOwner = localStorage.getItem(lockKey);
+        const isOnSessionPage = window.location.pathname.includes(`/session/${session._id}`);
+
+        if (currentOwner && currentOwner !== tabId.current) {
+           if (isOnSessionPage) {
+              console.log("[LiveSession] Session page taking priority. Waiting for other tab to release camera...");
+              localStorage.setItem(lockKey, tabId.current);
+              // Small delay to allow previous tab to call call.leave() and release hardware
+              await new Promise(resolve => setTimeout(resolve, 1000)); 
+           } else {
+              console.log("[LiveSession] Another tab owns this session. Skipping join.");
+              return;
+           }
+        } else {
+            localStorage.setItem(lockKey, tabId.current);
+        }
+
+        setIsJoining(true);
         setIsInitializingCall(true);
         setActiveSessionId(session._id);
         setSessionData(session);
         setIsLive(true);
 
         try {
+            console.log(`[LiveSession] Fetching token for user ${user?.id}...`);
             const { token, userId, userName, userImage } = await sessionApi.getStreamToken();
+            console.log(`[LiveSession] Token received. Initializing client for ${userName}...`);
 
             const client = await initializeStreamClient(
                 {
@@ -106,14 +167,19 @@ export const LiveSessionProvider = ({ children }) => {
             const apiKey = import.meta.env.VITE_STREAM_API_KEY;
             const chatInstance = StreamChat.getInstance(apiKey);
 
-            await chatInstance.connectUser(
-                {
-                    id: userId,
-                    name: userName,
-                    image: userImage,
-                },
-                token
-            );
+            if (chatInstance.userID !== userId) {
+                if (chatInstance.userID) {
+                    await chatInstance.disconnectUser();
+                }
+                await chatInstance.connectUser(
+                    {
+                        id: userId,
+                        name: userName,
+                        image: userImage,
+                    },
+                    token
+                );
+            }
             setChatClient(chatInstance);
 
             const chatChannel = chatInstance.channel("messaging", session.callId);
@@ -125,50 +191,75 @@ export const LiveSessionProvider = ({ children }) => {
             leaveSession();
         } finally {
             setIsInitializingCall(false);
+            setIsJoining(false);
         }
     };
 
-    const leaveSession = async () => {
-        try {
-            if (call) await call.leave();
-            if (chatClient) await chatClient.disconnectUser();
-            await disconnectStreamClient();
-        } catch (error) {
-            console.error("Cleanup error:", error);
-        } finally {
-            setActiveSessionId(null);
-            setSessionData(null);
-            setIsLive(false);
-            setIsMinimized(false);
-            setStreamClient(null);
-            setCall(null);
-            setChatClient(null);
-            setChannel(null);
-            localStorage.removeItem("activeSessionId");
-            localStorage.removeItem("isMinimized");
+  const leaveSession = async (isBackoff = false) => {
+    console.log(`[LiveSession] ${isBackoff ? "Backing off" : "Leaving"} session...`);
+    try {
+      if (call) await call.leave();
+      if (chatClient) await chatClient.disconnectUser();
+      await disconnectStreamClient();
+    } catch (error) {
+      console.error("[LiveSession] Cleanup error:", error);
+    } finally {
+      setIsLive(false);
+      setIsMinimized(false);
+      setStreamClient(null);
+      setCall(null);
+      setChatClient(null);
+      setChannel(null);
+      setSessionData(null);
+      
+      if (!isBackoff) {
+        setActiveSessionId(null);
+        localStorage.removeItem("activeSessionId");
+        localStorage.removeItem("isMinimized");
+        if (sessionData?._id && user?.id) {
+          localStorage.removeItem(`session_owner_${sessionData._id}_${user.id}`);
         }
-    };
+      }
+    }
+  };
 
-    return (
-        <LiveSessionContext.Provider
-            value={{
-                activeSessionId,
-                sessionData,
-                isLive,
-                isMinimized,
-                setIsMinimized,
-                streamClient,
-                call,
-                chatClient,
-                channel,
-                isInitializingCall,
-                joinSession,
-                leaveSession,
-            }}
-        >
-            {children}
-        </LiveSessionContext.Provider>
-    );
+    // Immediate cleanup on tab close to prevent "ghost" participants
+    useEffect(() => {
+        const handleUnload = () => {
+            if (sessionData?._id && user?.id) {
+                const lockKey = `session_owner_${sessionData._id}_${user.id}`;
+                if (localStorage.getItem(lockKey) === tabId.current) {
+                    localStorage.removeItem(lockKey);
+                }
+            }
+            if (call) {
+                call.leave();
+            }
+        };
+        window.addEventListener("beforeunload", handleUnload);
+        return () => window.removeEventListener("beforeunload", handleUnload);
+    }, [call]);
+
+  return (
+    <LiveSessionContext.Provider
+      value={{
+        activeSessionId,
+        sessionData,
+        isLive,
+        isMinimized,
+        setIsMinimized,
+        streamClient,
+        call,
+        chatClient,
+        channel,
+        isInitializingCall,
+        joinSession,
+        leaveSession,
+      }}
+    >
+      {children}
+    </LiveSessionContext.Provider>
+  );
 };
 
 export const useLiveSession = () => {

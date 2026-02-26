@@ -57,7 +57,8 @@ export async function createSession(req, res) {
             // Continue even if Stream chat channel fails
         }
 
-        res.status(201).json({ session: session })
+        const sessionLink = `${process.env.CLIENT_URL || "http://localhost:5173"}/session/${session._id}`
+        res.status(201).json({ session, sessionLink })
 
     } catch (error) {
         console.log("Error in createSession controller:", error.message)
@@ -110,6 +111,7 @@ export async function getSessionById(req, res) {
         const session = await Session.findById(id)
             .populate("host", "name email profileImage clerkId")
             .populate("participant", "name email profileImage clerkId")
+            .populate("participants", "name email profileImage clerkId")
             .populate("customProblemId")
 
         if (!session) {
@@ -150,7 +152,14 @@ export async function joinSession(req, res) {
             return res.status(409).json({ message: "session is full" })
         }
 
-        session.participant = userId
+        if (!session.participants.includes(userId)) {
+            session.participants.push(userId)
+        }
+
+        // Maintain backward compatibility for single participant field
+        if (!session.participant) {
+            session.participant = userId
+        }
         await session.save()
 
         const channel = chatClient.channel("messaging", session.callId)

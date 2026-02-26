@@ -60,17 +60,14 @@ function SessionPage() {
 
   // auto-join session if user is not already a participant and not the host
   useEffect(() => {
-    if (!session || !user || loadingSession) return;
+    if (!session || !user || loadingSession || isLive) return;
 
-    // Auto-join logic
     if (isHost || isParticipant) {
-      if (!isLive) {
-        joinSession(session, isHost, isParticipant);
-      }
+       joinSession(session, isHost, isParticipant);
     } else {
-      joinSessionMutation.mutate(id, { onSuccess: refetch });
+       joinSessionMutation.mutate(id, { onSuccess: refetch });
     }
-  }, [session, user, loadingSession, isHost, isParticipant, id]);
+  }, [session, user, loadingSession, isHost, isParticipant, id, isLive]);
 
   // redirect the "participant" when session ends
   useEffect(() => {
@@ -346,13 +343,13 @@ function SessionPage() {
                   </div>
                 </div>
               ) : (
-                <div className="h-full">
-                  <StreamVideo client={streamClient}>
-                    <StreamCall call={call}>
+                <StreamVideo client={streamClient}>
+                  <StreamCall call={call}>
+                    <div className="h-full">
                       <VideoCallUI chatClient={chatClient} channel={channel} />
-                    </StreamCall>
-                  </StreamVideo>
-                </div>
+                    </div>
+                  </StreamCall>
+                </StreamVideo>
               )}
             </div>
           </Panel>
