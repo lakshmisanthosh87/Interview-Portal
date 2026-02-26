@@ -52,12 +52,9 @@ function SessionPage() {
   const isInitializingCall = globalInitializing || loadingSession;
 
   // find the problem data based on session problem title OR custom problem data
-  console.log("Session Data:", session);
   const problemData = session?.customProblemId
     ? session.customProblemId // Use populated custom problem data
     : (session?.problem ? Object.values(PROBLEMS).find((p) => p.title === session.problem) : null);
-
-  console.log("Problem Data Found:", problemData);
 
   const [selectedLanguage, setSelectedLanguage] = useState("javascript");
   const [code, setCode] = useState(problemData?.starterCode?.[selectedLanguage] || "");
@@ -82,10 +79,10 @@ function SessionPage() {
 
   // update code when problem loads or changes
   useEffect(() => {
-    if (problemData?.starterCode?.[selectedLanguage]) {
+    if (problemData?.starterCode?.[selectedLanguage] && !code) {
       setCode(problemData.starterCode[selectedLanguage]);
     }
-  }, [problemData, selectedLanguage]);
+  }, [problemData, selectedLanguage, code]);
 
   const handleLanguageChange = (e) => {
     const newLang = e.target.value;
@@ -212,8 +209,13 @@ function SessionPage() {
                           <p className="text-base-content/60 mt-1">{problemData.category}</p>
                         )}
                         <p className="text-base-content/60 mt-2">
-                          Host: {session?.host?.name || "Loading..."} •{" "}
-                          {session?.participant ? 2 : 1}/2 participants
+                          Host: {session?.host?.name || "Loading..."}
+                          {session?.participant && (
+                            <> • Participant: {session.participant.name}</>
+                          )}
+                          {!session?.participant && (
+                            <> • {session?.participants?.length || 1}/2 participants</>
+                          )}
                         </p>
                       </div>
 
