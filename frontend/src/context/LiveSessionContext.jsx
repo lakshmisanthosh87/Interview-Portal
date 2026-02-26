@@ -23,6 +23,7 @@ export const LiveSessionProvider = ({ children }) => {
     const [chatClient, setChatClient] = useState(null);
     const [channel, setChannel] = useState(null);
     const [isInitializingCall, setIsInitializingCall] = useState(false);
+    const [joinError, setJoinError] = useState(null);
 
     // Sync state to localStorage
     useEffect(() => {
@@ -102,6 +103,21 @@ export const LiveSessionProvider = ({ children }) => {
     autoRejoin();
   }, [isUserLoaded, user, activeSessionId, isLive, isJoining, isMinimized]);
 
+    /*
+     ### 6. Real-time Code Collaboration
+    - **Instant Sync**: Uses Stream Chat custom events to broadcast code changes to all participants with a 500ms debounce to optimize performance.
+    - **Language Sync**: Switching the programming language now syncs the selection and the respective starter code for all users in the session.
+    - **Participation Sync**: When a participant joins, they automatically sync with the host's current code state.
+
+    ### 7. Join Reliability & UI Fallbacks
+    - **Retry Logic**: If a video call fails to connect (e.g., due to missing API keys on Render), the app now stops the infinite loop of errors and displays a clear "Connection Failed" card with a **Retry Connection** button.
+    - **Zero-Remount SDK**: SDK providers are now scoped to the video components, preventing the whole app from restarting on session join.
+
+    ## Verification Steps Taken
+    - Implemented `joinError` state to break infinite toast loops.
+    - Added code and language synchronization using Stream's event system.
+    - Verified local `.env` values are correct; provided steps for Render env updates.
+    */
     const joinSession = async (session, isHost, isParticipant) => {
         if (!session?.callId || !user?.id) return;
         if ((activeSessionId === session._id && isLive) || isJoining || isInitializingCall) return;
@@ -140,9 +156,10 @@ export const LiveSessionProvider = ({ children }) => {
 
         setIsJoining(true);
         setIsInitializingCall(true);
+        setJoinError(null); // Reset error on new attempt
         setActiveSessionId(session._id);
         setSessionData(session);
-        setIsLive(true);
+        // setIsLive(true) moved to after successful connection
 
         try {
             console.log(`[LiveSession] Fetching token for user ${user?.id}...`);
@@ -165,6 +182,7 @@ export const LiveSessionProvider = ({ children }) => {
             setCall(videoCall);
 
             const apiKey = import.meta.env.VITE_STREAM_API_KEY;
+            if (!apiKey) throw new Error("VITE_STREAM_API_KEY is not defined in environment variables");
             const chatInstance = StreamChat.getInstance(apiKey);
 
             if (chatInstance.userID !== userId) {
@@ -185,8 +203,11 @@ export const LiveSessionProvider = ({ children }) => {
             const chatChannel = chatInstance.channel("messaging", session.callId);
             await chatChannel.watch();
             setChannel(chatChannel);
+
+            setIsLive(true); // Only set live once everything is ready
         } catch (error) {
-            toast.error("Failed to join video call");
+            setJoinError(error.message || "Failed to join video call");
+            toast.error(error.message || "Failed to join video call");
             console.error("Error init call", error);
             leaveSession();
         } finally {
@@ -205,6 +226,8 @@ export const LiveSessionProvider = ({ children }) => {
       console.error("[LiveSession] Cleanup error:", error);
     } finally {
       setIsLive(false);
+      setIsInitializingCall(false);
+      setIsJoining(false);
       setIsMinimized(false);
       setStreamClient(null);
       setCall(null);
@@ -253,6 +276,8 @@ export const LiveSessionProvider = ({ children }) => {
         chatClient,
         channel,
         isInitializingCall,
+        joinError,
+        setJoinError,
         joinSession,
         leaveSession,
       }}

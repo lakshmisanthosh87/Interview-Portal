@@ -22,6 +22,7 @@ function SessionPage() {
   const { user } = useUser();
   const [output, setOutput] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
+  const isRemoteChange = useRef(false);
 
   const { data: sessionData, isLoading: loadingSession, refetch } = useSessionById(id);
 
@@ -42,7 +43,9 @@ function SessionPage() {
     streamClient,
     call,
     chatClient,
-    channel
+    channel,
+    joinError,
+    setJoinError
   } = useLiveSession();
 
   const isInitializingCall = globalInitializing || loadingSession;
@@ -60,14 +63,14 @@ function SessionPage() {
 
   // auto-join session if user is not already a participant and not the host
   useEffect(() => {
-    if (!session || !user || loadingSession || isLive) return;
+    if (!session || !user || loadingSession || isLive || isJoining || globalInitializing || joinError) return;
 
     if (isHost || isParticipant) {
        joinSession(session, isHost, isParticipant);
     } else {
        joinSessionMutation.mutate(id, { onSuccess: refetch });
     }
-  }, [session, user, loadingSession, isHost, isParticipant, id, isLive]);
+  }, [session, user, loadingSession, isLive, isJoining, globalInitializing, joinError, isHost, isParticipant, id]);
 
   // redirect the "participant" when session ends
   useEffect(() => {
@@ -90,6 +93,15 @@ function SessionPage() {
     const starterCode = problemData?.starterCode?.[newLang] || "";
     setCode(starterCode);
     setOutput(null);
+
+    // Sync language change
+    if (channel) {
+       channel.sendEvent({
+         type: "language-update",
+         language: newLang,
+         starterCode: starterCode
+       });
+    }
   };
 
   const handleRunCode = async () => {
@@ -100,6 +112,68 @@ function SessionPage() {
     setOutput(result);
     setIsRunning(false);
   };
+
+  // Real-time synchronization
+  useEffect(() => {
+    if (!channel || !user) return;
+
+    const handleEvent = (event) => {
+      // Ignore events from ourselves
+      if (!event.user || event.user.id === user.id) return;
+
+      if (event.type === "code-update") {
+        if (event.code !== code) {
+           isRemoteChange.current = true;
+           setCode(event.code);
+        }
+      } else if (event.type === "language-update") {
+        if (event.language !== selectedLanguage) {
+           setSelectedLanguage(event.language);
+           if (event.starterCode) {
+              isRemoteChange.current = true;
+              setCode(event.starterCode);
+           }
+        }
+      } else if (event.type === "request-sync" && isHost) {
+        // Send current state to joining participant
+        channel.sendEvent({
+          type: "code-update",
+          code: code,
+          language: selectedLanguage,
+        });
+      }
+    };
+
+    channel.on(handleEvent);
+    
+    // Request initial sync when component mounts if not host
+    if (!isHost) {
+       channel.sendEvent({ type: "request-sync" });
+    }
+
+    return () => channel.off(handleEvent);
+  }, [channel, user, isHost, code, selectedLanguage]);
+
+  // Debounced code emission
+  useEffect(() => {
+    if (!channel || !user || !isLive) return;
+
+    // If change was remote, don't emit it back
+    if (isRemoteChange.current) {
+      isRemoteChange.current = false;
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      console.log("[CodeSync] Emitting code update...");
+      channel.sendEvent({
+        type: "code-update",
+        code: code,
+      });
+    }, 500); // 500ms debounce
+
+    return () => clearTimeout(timeout);
+  }, [code, channel, user, isLive]);
 
   const handleEndSession = async () => {
     if (confirm("Are you sure you want to end this session? All participants will be notified.")) {
@@ -330,15 +404,27 @@ function SessionPage() {
                     <p className="text-lg">Connecting to video call...</p>
                   </div>
                 </div>
-              ) : !streamClient || !call ? (
+              ) : !streamClient || !call || joinError ? (
                 <div className="h-full flex items-center justify-center">
-                  <div className="card bg-base-100 shadow-xl max-w-md">
+                  <div className="card bg-base-100 shadow-xl max-w-md border border-error/20">
                     <div className="card-body items-center text-center">
                       <div className="w-24 h-24 bg-error/10 rounded-full flex items-center justify-center mb-4">
                         <PhoneOffIcon className="w-12 h-12 text-error" />
                       </div>
                       <h2 className="card-title text-2xl">Connection Failed</h2>
-                      <p className="text-base-content/70">Unable to connect to the video call</p>
+                      <p className="text-base-content/70 mb-6">
+                        {joinError || "Unable to connect to the video call"}
+                      </p>
+                      
+                      <button 
+                        onClick={() => {
+                          setJoinError(null);
+                          joinSession(session, isHost, isParticipant);
+                        }}
+                        className="btn btn-primary w-full gap-2"
+                      >
+                        Retry Connection
+                      </button>
                     </div>
                   </div>
                 </div>
