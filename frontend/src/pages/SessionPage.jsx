@@ -35,6 +35,7 @@ function SessionPage() {
 
   const {
     isLive,
+    isJoining,
     isMinimized,
     setIsMinimized,
     joinSession,
