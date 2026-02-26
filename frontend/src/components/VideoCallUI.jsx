@@ -12,8 +12,12 @@ import { Channel, Chat, MessageInput, MessageList, Thread, Window } from "stream
 import "@stream-io/video-react-sdk/dist/css/styles.css";
 import "stream-chat-react/dist/css/v2/index.css";
 
-function VideoCallUI({ chatClient, channel }) {
+import { Minimize2Icon } from "lucide-react";
+import { useLiveSession } from "../context/LiveSessionContext.jsx";
+
+function VideoCallUI({ chatClient, channel, isMini = false }) {
   const navigate = useNavigate();
+  const { setIsMinimized, leaveSession } = useLiveSession();
   const { useCallCallingState, useParticipantCount } = useCallStateHooks();
   const callingState = useCallCallingState();
   const participantCount = useParticipantCount();
@@ -30,36 +34,58 @@ function VideoCallUI({ chatClient, channel }) {
     );
   }
 
+  const handleLeave = () => {
+    leaveSession();
+    navigate("/dashboard");
+  };
+
+  const handleMinimize = () => {
+    setIsMinimized(true);
+    navigate("/dashboard");
+  };
+
   return (
-    <div className="h-full flex gap-3 relative str-video">
+    <div className={`h-full flex gap-3 relative str-video ${isMini ? "flex-col p-0" : ""}`}>
       <div className="flex-1 flex flex-col gap-3">
         {/* Participants count badge and Chat Toggle */}
-        <div className="flex items-center justify-between gap-2 bg-base-100 p-3 rounded-lg shadow">
-          <div className="flex items-center gap-2">
-            <UsersIcon className="w-5 h-5 text-primary" />
-            <span className="font-semibold">
-              {participantCount} {participantCount === 1 ? "participant" : "participants"}
-            </span>
+        {!isMini && (
+          <div className="flex items-center justify-between gap-2 bg-base-100 p-3 rounded-lg shadow">
+            <div className="flex items-center gap-2">
+              <UsersIcon className="w-5 h-5 text-primary" />
+              <span className="font-semibold">
+                {participantCount} {participantCount === 1 ? "participant" : "participants"}
+              </span>
+            </div>
+            {chatClient && channel && (
+              <button
+                onClick={() => setIsChatOpen(!isChatOpen)}
+                className={`btn btn-sm gap-2 ${isChatOpen ? "btn-primary" : "btn-ghost"}`}
+                title={isChatOpen ? "Hide chat" : "Show chat"}
+              >
+                <MessageSquareIcon className="size-4" />
+                Chat
+              </button>
+            )}
           </div>
-          {chatClient && channel && (
-            <button
-              onClick={() => setIsChatOpen(!isChatOpen)}
-              className={`btn btn-sm gap-2 ${isChatOpen ? "btn-primary" : "btn-ghost"}`}
-              title={isChatOpen ? "Hide chat" : "Show chat"}
-            >
-              <MessageSquareIcon className="size-4" />
-              Chat
-            </button>
-          )}
-        </div>
+        )}
 
         <div className="flex-1 bg-base-300 rounded-lg overflow-hidden relative">
           <SpeakerLayout />
         </div>
 
-        <div className="bg-base-100 p-3 rounded-lg shadow flex justify-center">
-          <CallControls onLeave={() => navigate("/dashboard")} />
-        </div>
+        {!isMini && (
+          <div className="bg-base-100 p-3 rounded-lg shadow flex justify-center gap-2">
+            <button
+              onClick={handleMinimize}
+              className="btn btn-ghost btn-sm gap-2"
+              title="Minimize Session"
+            >
+              <Minimize2Icon className="size-4" />
+              Minimize
+            </button>
+            <CallControls onLeave={handleLeave} />
+          </div>
+        )}
       </div>
 
       {/* CHAT SECTION */}

@@ -9,6 +9,8 @@ import SessionPage from './pages/SessionPage'
 import { Toaster } from 'react-hot-toast'
 
 
+import FloatingVideoCall from './components/FloatingVideoCall'
+
 function App() {
   const { isSignedIn, isLoaded } = useUser()
 
@@ -49,6 +51,7 @@ function App() {
         />
       </Routes>
 
+      <FloatingVideoCall />
       <Toaster />
     </>
   )

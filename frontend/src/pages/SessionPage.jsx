@@ -12,9 +12,9 @@ import CodeEditor from "../components/CodeEditor";
 import OutputPanel from "../components/OutputPanel";
 import toast from "react-hot-toast";
 
-import useStreamClient from "../hooks/useStreamClient";
 import { StreamCall, StreamVideo } from "@stream-io/video-react-sdk";
 import VideoCallUI from "../components/VideoCallUI";
+import { useLiveSession } from "../context/LiveSessionContext";
 
 function SessionPage() {
   const navigate = useNavigate();
@@ -32,12 +32,20 @@ function SessionPage() {
   const isHost = session?.host?.clerkId === user?.id;
   const isParticipant = session?.participant?.clerkId === user?.id;
 
-  const { call, channel, chatClient, isInitializingCall, streamClient } = useStreamClient(
-    session,
-    loadingSession,
-    isHost,
-    isParticipant
-  );
+  const {
+    isLive,
+    isMinimized,
+    setIsMinimized,
+    joinSession,
+    leaveSession,
+    isInitializingCall: globalInitializing,
+    streamClient,
+    call,
+    chatClient,
+    channel
+  } = useLiveSession();
+
+  const isInitializingCall = globalInitializing || loadingSession;
 
   // find the problem data based on session problem title OR custom problem data
   console.log("Session Data:", session);
@@ -53,11 +61,15 @@ function SessionPage() {
   // auto-join session if user is not already a participant and not the host
   useEffect(() => {
     if (!session || !user || loadingSession) return;
-    if (isHost || isParticipant) return;
 
-    joinSessionMutation.mutate(id, { onSuccess: refetch });
-
-    // remove the joinSessionMutation, refetch from dependencies to avoid infinite loop
+    // Auto-join logic
+    if (isHost || isParticipant) {
+      if (!isLive) {
+        joinSession(session, isHost, isParticipant);
+      }
+    } else {
+      joinSessionMutation.mutate(id, { onSuccess: refetch });
+    }
   }, [session, user, loadingSession, isHost, isParticipant, id]);
 
   // redirect the "participant" when session ends
@@ -92,9 +104,9 @@ function SessionPage() {
     setIsRunning(false);
   };
 
-  const handleEndSession = () => {
+  const handleEndSession = async () => {
     if (confirm("Are you sure you want to end this session? All participants will be notified.")) {
-      // this will navigate the HOST to dashboard
+      await leaveSession();
       endSessionMutation.mutate(id, { onSuccess: () => navigate("/dashboard") });
     }
   };
@@ -300,7 +312,21 @@ function SessionPage() {
           {/* RIGHT PANEL - VIDEO CALLS & CHAT */}
           <Panel defaultSize={50} minSize={30}>
             <div className="h-full bg-base-200 p-4 overflow-auto">
-              {isInitializingCall ? (
+              {isMinimized ? (
+                <div className="h-full flex items-center justify-center">
+                  <div className="text-center p-8 bg-base-100 rounded-2xl shadow-xl border border-dashed border-primary/30">
+                    <Loader2Icon className="w-12 h-12 mx-auto animate-bounce text-primary mb-4" />
+                    <h3 className="text-xl font-bold">Session is Minimized</h3>
+                    <p className="text-base-content/60 mt-2">Check the floating window or click below to expand</p>
+                    <button
+                      onClick={() => setIsMinimized(false)}
+                      className="btn btn-primary mt-6"
+                    >
+                      Expand Video
+                    </button>
+                  </div>
+                </div>
+              ) : isInitializingCall ? (
                 <div className="h-full flex items-center justify-center">
                   <div className="text-center">
                     <Loader2Icon className="w-12 h-12 mx-auto animate-spin text-primary mb-4" />
