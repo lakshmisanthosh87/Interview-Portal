@@ -14,7 +14,7 @@ import toast from "react-hot-toast";
 import confetti from "canvas-confetti";
 import AIAnalysisModal from "../components/AIAnalysisModal";
 import HintModal from '../components/HintModal';
-import axios from "axios";
+import axiosInstance from "../lib/axios";
 
 function ProblemPage() {
   const { id } = useParams();
@@ -216,11 +216,11 @@ function ProblemPage() {
     }
     setIsAnalyzing(true);
     try {
-      const res = await axios.post("http://localhost:5000/api/ai/analyze", {
+      const res = await axiosInstance.post("ai/analyze", {
         code,
         language: selectedLanguage,
         problemDescription: currentProblem?.description || currentProblem?.problem_slug // fallback if description missing
-      }, { withCredentials: true }); // Ensure cookies for auth are sent if needed, though this route might not be auth protected strictly yet or assumes cookie auth
+      }); // Ensure cookies for auth are sent if needed, though this route might not be auth protected strictly yet or assumes cookie auth
 
       setAnalysisResult(res.data);
       setIsModalOpen(true);
@@ -239,14 +239,13 @@ function ProblemPage() {
     }
     setIsFetchingHint(true);
     try {
-      const res = await axios.post(
-        "http://localhost:5000/api/ai/hint",
+      const res = await axiosInstance.post(
+        "ai/hint",
         {
           code,
           language: selectedLanguage,
           problemDescription: currentProblem?.description || currentProblem?.problem_slug,
-        },
-        { withCredentials: true }
+        }
       );
 
       if (res.data.hint) {

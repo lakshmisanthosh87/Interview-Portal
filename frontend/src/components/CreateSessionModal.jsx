@@ -1,7 +1,7 @@
 import { Code2Icon, LoaderIcon, PlusIcon, FileTextIcon } from "lucide-react";
 import { PROBLEMS } from "../data/Problems";
 import { useState } from "react";
-import axios from "axios";
+import axiosInstance from "../lib/axios";
 import toast from "react-hot-toast";
 
 function CreateSessionModal({
@@ -31,9 +31,7 @@ function CreateSessionModal({
 
       try {
         // Create custom problem first
-        const res = await axios.post("http://localhost:5000/api/problems", customProblem, {
-          withCredentials: true,
-        });
+        const res = await axiosInstance.post("problems", customProblem);
 
         const newProblem = res.data;
 

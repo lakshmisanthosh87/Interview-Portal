@@ -108,7 +108,7 @@ export async function getSessionById(req, res) {
         const { id } = req.params
 
         const session = await Session.findById(id)
-            .populate("host", "name email profilImage clerkId")
+            .populate("host", "name email profileImage clerkId")
             .populate("participant", "name email profileImage clerkId")
             .populate("customProblemId")
 
