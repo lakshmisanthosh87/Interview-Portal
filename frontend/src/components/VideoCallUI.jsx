@@ -23,6 +23,11 @@ function VideoCallUI({ chatClient, channel, isMini = false }) {
   const participantCount = useParticipantCount();
   const [isChatOpen, setIsChatOpen] = useState(false);
 
+  // Diagnostic logging
+  useEffect(() => {
+    console.log(`[VideoCallUI] Participant Count: ${participantCount}`);
+  }, [participantCount]);
+
   if (callingState === CallingState.JOINING) {
     return (
       <div className="h-full flex items-center justify-center">

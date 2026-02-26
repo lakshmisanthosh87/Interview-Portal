@@ -31,6 +31,7 @@ export async function createSession(req, res) {
             await streamClient.video.call("default", callId).getOrCreate({
                 data: {
                     created_by_id: clerkId,
+                    members: [{ user_id: clerkId, role: "admin" }], // Add host as member
                     custom: {
                         problem,
                         difficulty,
@@ -164,6 +165,18 @@ export async function joinSession(req, res) {
 
         const channel = chatClient.channel("messaging", session.callId)
         await channel.addMembers([clerkId])
+
+        // Add to Stream Video Call members as well
+        try {
+            const videoCall = streamClient.video.call("default", session.callId);
+            await videoCall.updateCallMembers({
+                add_members: [{ user_id: clerkId, role: "user" }]
+            });
+            console.log(`[JoinSession] Added ${clerkId} to Stream Video call members`);
+        } catch (videoError) {
+            console.log("Warning: Failed to add participant to Stream Video call:", videoError.message);
+        }
+
         res.status(200).json({ session })
     } catch (error) {
 
