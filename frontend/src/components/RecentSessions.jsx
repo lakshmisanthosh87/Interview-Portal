@@ -1,9 +1,25 @@
-import { Code2, Clock, Users, Trophy, Loader } from "lucide-react";
+import { Code2, Clock, Users, Trophy, Loader, MoreVertical, Eye, Trash2 } from "lucide-react";
 import { getDifficultyBadgeClass } from "../lib/utils";
 import { formatDistanceToNow } from "date-fns";
+import { useDeleteSession } from "../hooks/useSessions";
+import { useUser } from "@clerk/clerk-react";
+import { useState } from "react";
 
 function RecentSessions({ sessions, isLoading }) {
   console.log("RecentSessions data:", sessions);
+  const { user } = useUser();
+  const deleteSessionMutation = useDeleteSession();
+  const [openMenuId, setOpenMenuId] = useState(null);
+
+  const handleDelete = (e, sessionId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (confirm("Are you sure you want to delete this session permanently?")) {
+      deleteSessionMutation.mutate(sessionId);
+    }
+    setOpenMenuId(null);
+  };
+
   return (
     <div className="card bg-base-100 border-2 border-accent/20 hover:border-accent/30 mt-8">
       <div className="card-body">
@@ -20,7 +36,10 @@ function RecentSessions({ sessions, isLoading }) {
               <Loader className="w-10 h-10 animate-spin text-primary" />
             </div>
           ) : sessions.length > 0 ? (
-            sessions.map((session) => (
+            sessions.map((session) => {
+              const isHost = session.host?.clerkId === user?.id || session.host === user?.id; // backend might return id or clerkId depending on population
+              
+              return (
               <div
                 key={session._id}
                 className={`card relative ${session.status === "active"
@@ -28,8 +47,41 @@ function RecentSessions({ sessions, isLoading }) {
                   : "bg-base-200 border-base-300 hover:border-primary/30"
                   }`}
               >
+                {/* 3-DOT MENU */}
+                <div className="absolute top-3 right-3 z-10">
+                  <div className="dropdown dropdown-end">
+                    <button 
+                      tabIndex={0} 
+                      className="btn btn-ghost btn-xs btn-circle"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                    >
+                      <MoreVertical className="size-4" />
+                    </button>
+                    <ul tabIndex={0} className="dropdown-content z-[20] menu p-2 shadow bg-base-100 rounded-box w-52 border border-base-300">
+                      <li>
+                        <button className="flex items-center gap-2">
+                          <Eye className="size-4" /> View Recording
+                        </button>
+                      </li>
+                      {isHost && (
+                        <li>
+                          <button 
+                            onClick={(e) => handleDelete(e, session._id)}
+                            className="flex items-center gap-2 text-error hover:bg-error/10"
+                          >
+                            <Trash2 className="size-4" /> Delete Session
+                          </button>
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                </div>
+
                 {session.status === "active" && (
-                  <div className="absolute top-3 right-3">
+                  <div className="absolute top-3 right-10">
                     <div className="badge badge-success gap-1">
                       <div className="w-1.5 h-1.5 bg-success rounded-full animate-pulse" />
                       ACTIVE
@@ -37,7 +89,7 @@ function RecentSessions({ sessions, isLoading }) {
                   </div>
                 )}
 
-                <div className="card-body p-5">
+                <div className="card-body p-5 pt-10">
                   <div className="flex items-start gap-3 mb-4">
                     <div
                       className={`w-12 h-12 rounded-xl flex items-center justify-center ${session.status === "active"
@@ -85,7 +137,8 @@ function RecentSessions({ sessions, isLoading }) {
                   </div>
                 </div>
               </div>
-            ))
+            );
+          })
           ) : (
             <div className="col-span-full text-center py-16">
               <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-accent/20 to-secondary/20 rounded-3xl flex items-center justify-center">

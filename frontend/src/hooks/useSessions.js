@@ -120,3 +120,17 @@ export const useAllProblems = () => {
 
   return result;
 };
+
+export const useDeleteSession = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["deleteSession"],
+    mutationFn: sessionApi.deleteSession,
+    onSuccess: () => {
+      toast.success("Session deleted successfully!");
+      queryClient.invalidateQueries({ queryKey: ["myRecentSessions"] });
+      queryClient.invalidateQueries({ queryKey: ["activeSessions"] });
+    },
+    onError: (error) => toast.error(error.response?.data?.message || "Failed to delete session"),
+  });
+};
