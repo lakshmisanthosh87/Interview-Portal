@@ -232,11 +232,20 @@ export async function endSession(req, res) {
         }
         if (session.status === "completed") return res.status(400).json({ message: "Session already completed" })
 
-        const call = streamClient.video.call("default", session.callId)
-        await call.delete({ hard: true })
+        // Clean up Stream resources
+        try {
+            const call = streamClient.video.call("default", session.callId)
+            await call.delete({ hard: true })
+        } catch (streamError) {
+            console.log("Cleanup: Stream video call already deleted or failed:", streamError.message)
+        }
 
-        const channel = chatClient.channel("messaging", session.callId)
-        await channel.delete()
+        try {
+            const channel = chatClient.channel("messaging", session.callId)
+            await channel.delete()
+        } catch (chatError) {
+            console.log("Cleanup: Stream chat channel already deleted or failed:", chatError.message)
+        }
 
         session.status = "completed"
         await session.save()

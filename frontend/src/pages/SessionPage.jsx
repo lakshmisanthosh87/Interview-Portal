@@ -212,19 +212,31 @@ function SessionPage() {
       let combinedStream = screenStream;
       try {
         const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const audioContext = new AudioContext();
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        
         const dest = audioContext.createMediaStreamDestination();
+        let hasSystemAudio = screenStream.getAudioTracks().length > 0;
         
-        const screenSource = audioContext.createMediaStreamSource(screenStream);
+        if (hasSystemAudio) {
+          const screenSource = audioContext.createMediaStreamSource(screenStream);
+          screenSource.connect(dest);
+        }
+        
         const micSource = audioContext.createMediaStreamSource(audioStream);
-        
-        screenSource.connect(dest);
         micSource.connect(dest);
         
-        const tracks = [...screenStream.getVideoTracks(), ...dest.stream.getAudioTracks()];
+        // Resume context if suspended (common browser policy)
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume();
+        }
+
+        const tracks = [
+          ...screenStream.getVideoTracks(),
+          ...dest.stream.getAudioTracks()
+        ];
         combinedStream = new MediaStream(tracks);
       } catch (e) {
-        console.log("Mic audio not available or denied, recording screen audio only");
+        console.log("Mic audio mixing failed, using screen stream only:", e);
       }
 
       recordingStreamRef.current = combinedStream;
@@ -390,13 +402,32 @@ function SessionPage() {
                                 <div key={idx} className="bg-base-200 rounded-lg overflow-hidden border border-base-300">
                                   <div className="px-4 py-2 bg-base-300/50 border-b border-base-300 text-xs font-bold uppercase tracking-wider">Example {idx + 1}</div>
                                   <div className="p-4 font-mono text-sm space-y-2">
-                                    <div className="flex gap-4"><span className="text-primary font-bold">Input:</span><span className="break-all">{example.input || "None"}</span></div>
-                                    <div className="flex gap-4"><span className="text-secondary font-bold">Output:</span><span className="break-all">{example.output || "None"}</span></div>
+                                    {example.example_text ? (
+                                      <div className="whitespace-pre-wrap">{example.example_text}</div>
+                                    ) : (
+                                      <>
+                                        <div className="flex gap-4"><span className="text-primary font-bold">Input:</span><span className="break-all">{example.input || "None"}</span></div>
+                                        <div className="flex gap-4"><span className="text-secondary font-bold">Output:</span><span className="break-all">{example.output || "None"}</span></div>
+                                      </>
+                                    )}
                                     {example.explanation && <div className="mt-2 text-xs text-base-content/60 italic">{example.explanation}</div>}
                                   </div>
                                 </div>
                               ))}
                             </div>
+                          </div>
+                        )}
+
+                        {problemData?.constraints && problemData.constraints.length > 0 && (
+                          <div className="bg-base-100 rounded-xl shadow-sm p-6 border border-base-300">
+                            <h2 className="text-xl font-bold mb-4">Constraints</h2>
+                            <ul className="list-disc list-inside space-y-2">
+                              {problemData.constraints.map((constraint, idx) => (
+                                <li key={idx} className="text-sm text-base-content/80 font-mono">
+                                  {constraint}
+                                </li>
+                              ))}
+                            </ul>
                           </div>
                         )}
                       </div>
