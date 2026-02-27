@@ -1,13 +1,13 @@
 import { useUser } from "@clerk/clerk-react";
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams } from "react-router";
-import { useEndSession, useJoinSession, useSessionById } from "../hooks/useSessions";
+import { useEndSession, useJoinSession, useSessionById, useAddProblemToSession } from "../hooks/useSessions";
 import { PROBLEMS } from "../data/Problems";
 import { executeCode } from "../lib/piston";
 import Navbar from "../components/Navbar";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { getDifficultyBadgeClass } from "../lib/utils";
-import { Loader2Icon, LogOutIcon, PhoneOffIcon, ShareIcon, ChevronLeftIcon, ChevronRightIcon, ListIcon } from "lucide-react";
+import { Loader2Icon, LogOutIcon, PhoneOffIcon, ShareIcon, ChevronLeftIcon, ChevronRightIcon, ListIcon, PlusIcon } from "lucide-react";
 import CodeEditor from "../components/CodeEditor";
 import OutputPanel from "../components/OutputPanel";
 import toast from "react-hot-toast";
@@ -15,17 +15,20 @@ import toast from "react-hot-toast";
 import { StreamCall, StreamVideo } from "@stream-io/video-react-sdk";
 import VideoCallUI from "../components/VideoCallUI";
 import { useLiveSession } from "../context/LiveSessionContext";
+import AddProblemModal from "../components/AddProblemModal";
 
 function SessionPage() {
   const navigate = useNavigate();
   const { id } = useParams();
   const { user } = useUser();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isAddProblemOpen, setIsAddProblemOpen] = useState(false);
   const hasInitiatedJoin = useRef(false);
 
   const { data: sessionData, isLoading: loadingSession, refetch } = useSessionById(id);
   const joinSessionMutation = useJoinSession();
   const endSessionMutation = useEndSession();
+  const addProblemMutation = useAddProblemToSession();
 
   const session = sessionData?.session;
   const isHost = session?.host?.clerkId === user?.id;
@@ -150,6 +153,30 @@ function SessionPage() {
     }
   };
 
+  useEffect(() => {
+    if (!channel) return;
+    const handleAddProblemEvent = (event) => {
+      if (event.type === "problem-added") {
+        refetch();
+        toast.success("New problem added by host!");
+      }
+    };
+    channel.on(handleAddProblemEvent);
+    return () => channel.off(handleAddProblemEvent);
+  }, [channel, refetch]);
+
+  const handleAddProblem = async (problemData) => {
+    addProblemMutation.mutate({ id, problemData }, {
+      onSuccess: () => {
+        setIsAddProblemOpen(false);
+        refetch();
+        if (channel) {
+          channel.sendEvent({ type: "problem-added" });
+        }
+      }
+    });
+  };
+
   const handleEndSession = async () => {
     if (confirm("End this session?")) {
       await leaveSession();
@@ -177,7 +204,14 @@ function SessionPage() {
           <div className={`transition-all duration-300 border-r border-base-300 bg-base-200 flex flex-col ${isSidebarOpen ? 'w-64' : 'w-0 overflow-hidden'}`}>
               <div className="p-4 border-b border-base-300 flex items-center justify-between bg-base-100">
                   <span className="font-bold text-sm uppercase tracking-wider text-base-content/60">Problems</span>
-                  <ListIcon className="size-4 text-base-content/40"/>
+                  <div className="flex items-center gap-2">
+                      {isHost && (
+                          <button onClick={() => setIsAddProblemOpen(true)} className="btn btn-ghost btn-xs btn-circle bg-primary/10 hover:bg-primary/20 text-primary">
+                              <PlusIcon className="size-4" />
+                          </button>
+                      )}
+                      <ListIcon className="size-4 text-base-content/40"/>
+                  </div>
               </div>
               <div className="flex-1 overflow-y-auto p-2 space-y-1">
                   {allProblems.map((p, idx) => (
@@ -218,6 +252,10 @@ function SessionPage() {
                       <div className="p-6 bg-base-100 border-b border-base-300">
                         <div className="flex items-start justify-between mb-3">
                           <div>
+                            <div className="flex items-center gap-2 mb-1">
+                                <span className="badge badge-outline badge-sm font-bold uppercase tracking-tight opacity-50">Live Session</span>
+                                <span className="text-sm font-bold text-primary">{session?.title || "Active Session"}</span>
+                            </div>
                             <h1 className="text-3xl font-bold text-base-content">
                               {problemData?.title || "Loading..."}
                             </h1>
@@ -363,6 +401,12 @@ function SessionPage() {
         </PanelGroup>
         </div>
       </div>
+      <AddProblemModal 
+        isOpen={isAddProblemOpen} 
+        onClose={() => setIsAddProblemOpen(false)} 
+        onAddProblem={handleAddProblem}
+        isAdding={addProblemMutation.isPending}
+      />
     </div>
   );
 }

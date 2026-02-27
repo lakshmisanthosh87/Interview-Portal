@@ -1,6 +1,10 @@
 import mongoose from "mongoose"
 
 const sessionSchema = new mongoose.Schema({
+    title: {
+        type: String,
+        default: "Session"
+    },
     // Support for multiple problems (existing list)
     problems: [{
         type: String,

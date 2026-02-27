@@ -3,7 +3,7 @@ import { chatClient, streamClient } from "../lib/stream.js"
 
 export async function createSession(req, res) {
     try {
-        const { problems, difficulty, customProblems } = req.body
+        const { title, problems, difficulty, customProblems } = req.body
         const userId = req.user._id
         const clerkId = req.user.clerkId
 
@@ -20,7 +20,9 @@ export async function createSession(req, res) {
         const callId = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`
 
         // create session in db
+        const sessionTitle = title || `Session - ${new Date().toLocaleDateString()}`
         const session = await Session.create({
+            title: sessionTitle,
             problems: problems || [],
             customProblems: customProblems || [],
             difficulty,
@@ -268,5 +270,45 @@ export async function leaveSessionController(req, res) {
     } catch (error) {
         console.log("error in leaveSession controller:", error.message)
         res.status(500).json({ message: "Internal server error" })
+    }
+}
+
+export async function addProblemToSession(req, res) {
+    try {
+        const { id } = req.params;
+        const { problemTitle, customProblemId } = req.body;
+        const userId = req.user._id;
+
+        const session = await Session.findById(id);
+        if (!session) return res.status(404).json({ message: "Session not found" });
+
+        if (session.host.toString() !== userId.toString()) {
+            return res.status(403).json({ message: "Only the host can add problems" });
+        }
+
+        if (problemTitle) {
+            if (!session.problems.includes(problemTitle)) {
+                session.problems.push(problemTitle);
+            }
+        } else if (customProblemId) {
+            if (!session.customProblems.includes(customProblemId)) {
+                session.customProblems.push(customProblemId);
+            }
+        } else {
+            return res.status(400).json({ message: "Problem title or custom problem ID is required" });
+        }
+
+        await session.save();
+
+        const populatedSession = await Session.findById(id)
+            .populate("host", "name email profileImage clerkId")
+            .populate("participant", "name email profileImage clerkId")
+            .populate("participants", "name email profileImage clerkId")
+            .populate("customProblems");
+
+        res.status(200).json({ session: populatedSession, message: "Problem added successfully" });
+    } catch (error) {
+        console.error("Error in addProblemToSession:", error.message);
+        res.status(500).json({ message: "Internal server error" });
     }
 }

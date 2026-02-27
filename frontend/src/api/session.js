@@ -40,4 +40,8 @@ export const sessionApi = {
     const response = await axiosInstance.patch(`sessions/${id}/active-problem`, { activeProblemIndex });
     return response.data;
   },
+  addProblemToSession: async (id, problemData) => {
+    const response = await axiosInstance.post(`sessions/${id}/add-problem`, problemData);
+    return response.data;
+  },
 };

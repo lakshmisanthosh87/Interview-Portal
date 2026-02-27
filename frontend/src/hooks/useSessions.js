@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { sessionApi } from "../api/session";
+import { problemApi } from "../api/problem";
 
 export const useCreateSession = () => {
   const result = useMutation({
@@ -78,6 +79,26 @@ export const useUpdateActiveProblem = () => {
     mutationKey: ["updateActiveProblem"],
     mutationFn: ({ id, activeProblemIndex }) => sessionApi.updateActiveProblem(id, activeProblemIndex),
     onError: (error) => toast.error(error.response?.data?.message || "Failed to switch problem"),
+  });
+
+  return result;
+};
+
+export const useAddProblemToSession = () => {
+  const result = useMutation({
+    mutationKey: ["addProblemToSession"],
+    mutationFn: ({ id, problemData }) => sessionApi.addProblemToSession(id, problemData),
+    onSuccess: () => toast.success("Problem added to session!"),
+    onError: (error) => toast.error(error.response?.data?.message || "Failed to add problem"),
+  });
+
+  return result;
+};
+
+export const useAllProblems = () => {
+  const result = useQuery({
+    queryKey: ["allProblems"],
+    queryFn: problemApi.getAllProblems,
   });
 
   return result;

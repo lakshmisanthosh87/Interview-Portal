@@ -26,6 +26,7 @@ function DashboardPage() {
 
     createSessionMutation.mutate(
       {
+        title: config.title,
         problems: config.problems,
         difficulty: config.difficulty,
         customProblems: config.customProblems,

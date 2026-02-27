@@ -11,6 +11,7 @@ function CreateSessionModal({
   isCreating,
 }) {
   const allExistingProblems = PROBLEMS || [];
+  const [sessionTitle, setSessionTitle] = useState("");
   const [selectedProblems, setSelectedProblems] = useState([]); // Array of strings (titles)
   const [selectedCustomProblems, setSelectedCustomProblems] = useState([]); // Array of objects
   const [difficulty, setDifficulty] = useState("easy");
@@ -73,6 +74,7 @@ function CreateSessionModal({
 
       // Call parent to create room
       onCreateRoom({
+        title: sessionTitle,
         problems: selectedProblems,
         difficulty: difficulty.toLowerCase(),
         customProblems: customProblemIds,
@@ -93,6 +95,17 @@ function CreateSessionModal({
         </div>
 
         <div className="space-y-6">
+          <div className="form-control">
+            <label className="label"><span className="label-text font-semibold">Session Title</span></label>
+            <input
+              type="text"
+              placeholder="e.g. Frontend Mock Interview"
+              className="input input-bordered w-full"
+              value={sessionTitle}
+              onChange={(e) => setSessionTitle(e.target.value)}
+            />
+          </div>
+
           {/* SELECTED PROBLEMS LIST */}
           {(selectedProblems.length > 0 || selectedCustomProblems.length > 0) && (
             <div className="bg-base-200 p-4 rounded-xl border border-base-300">
