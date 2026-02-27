@@ -54,7 +54,9 @@ function SessionPage() {
     executionResult: output,
     setExecutionResult: setOutput,
     isExecuting: isRunning,
-    setIsExecuting: setIsRunning
+    setIsExecuting: setIsRunning,
+    isVideoMaximized,
+    setIsVideoMaximized
   } = useLiveSession();
 
   const isInitializingCall = globalInitializing || loadingSession;
@@ -171,137 +173,144 @@ function SessionPage() {
 
       <div className="flex-1 flex overflow-hidden">
         {/* PROBLEM SIDEBAR */}
-        <div className={`transition-all duration-300 border-r border-base-300 bg-base-200 flex flex-col ${isSidebarOpen ? 'w-64' : 'w-0 overflow-hidden'}`}>
-            <div className="p-4 border-b border-base-300 flex items-center justify-between bg-base-100">
-                <span className="font-bold text-sm uppercase tracking-wider text-base-content/60">Problems</span>
-                <ListIcon className="size-4 text-base-content/40"/>
-            </div>
-            <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                {allProblems.map((p, idx) => (
-                    <button
-                        key={idx}
-                        onClick={() => switchProblem(idx)}
-                        className={`w-full text-left p-3 rounded-lg transition-all text-sm flex items-center gap-3 ${activeProblemIndex === idx ? 'bg-primary text-primary-content shadow-md' : 'hover:bg-base-300'}`}
-                    >
-                        <span className={`size-6 rounded-full flex items-center justify-center text-[10px] border ${activeProblemIndex === idx ? 'border-primary-content/30' : 'border-base-content/20'}`}>
-                            {idx + 1}
-                        </span>
-                        <span className="truncate font-medium">{p.title}</span>
-                    </button>
-                ))}
-            </div>
-
-        </div>
+        {!isVideoMaximized && (
+          <div className={`transition-all duration-300 border-r border-base-300 bg-base-200 flex flex-col ${isSidebarOpen ? 'w-64' : 'w-0 overflow-hidden'}`}>
+              <div className="p-4 border-b border-base-300 flex items-center justify-between bg-base-100">
+                  <span className="font-bold text-sm uppercase tracking-wider text-base-content/60">Problems</span>
+                  <ListIcon className="size-4 text-base-content/40"/>
+              </div>
+              <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                  {allProblems.map((p, idx) => (
+                      <button
+                          key={idx}
+                          onClick={() => switchProblem(idx)}
+                          className={`w-full text-left p-3 rounded-lg transition-all text-sm flex items-center gap-3 ${activeProblemIndex === idx ? 'bg-primary text-primary-content shadow-md' : 'hover:bg-base-300'}`}
+                      >
+                          <span className={`size-6 rounded-full flex items-center justify-center text-[10px] border ${activeProblemIndex === idx ? 'border-primary-content/30' : 'border-base-content/20'}`}>
+                              {idx + 1}
+                          </span>
+                          <span className="truncate font-medium">{p.title}</span>
+                      </button>
+                  ))}
+              </div>
+          </div>
+        )}
 
         {/* SIDEBAR TOGGLE BUTTON */}
-        <button 
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="absolute left-[244px] top-1/2 -translate-y-1/2 z-50 btn btn-circle btn-xs btn-primary shadow-lg transition-all"
-            style={{ left: isSidebarOpen ? '244px' : '0px' }}
-        >
-            {isSidebarOpen ? <ChevronLeftIcon className="size-3"/> : <ChevronRightIcon className="size-3"/>}
-        </button>
+        {!isVideoMaximized && (
+          <button 
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="absolute left-[244px] top-1/2 -translate-y-1/2 z-50 btn btn-circle btn-xs btn-primary shadow-lg transition-all"
+              style={{ left: isSidebarOpen ? '244px' : '0px' }}
+          >
+              {isSidebarOpen ? <ChevronLeftIcon className="size-3"/> : <ChevronRightIcon className="size-3"/>}
+          </button>
+        )}
 
         <div className="flex-1 relative overflow-hidden">
         <PanelGroup direction="horizontal">
-          <Panel defaultSize={50} minSize={30}>
-            <PanelGroup direction="vertical">
-              <Panel defaultSize={50} minSize={20}>
-                <div className="h-full overflow-y-auto bg-base-200">
-                  <div className="p-6 bg-base-100 border-b border-base-300">
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h1 className="text-3xl font-bold text-base-content">
-                          {problemData?.title || "Loading..."}
-                        </h1>
-                        <p className="text-base-content/60 mt-1">
-                          {problemData?.category || (problemData?.difficulty && `Difficulty: ${problemData.difficulty}`)}
-                        </p>
-                        <p className="text-base-content/60 mt-2">
-                          Host: {session?.host?.name || "..."}
-                          {session?.participant && <> • Guest: {session.participant.name}</>}
-                        </p>
+          {!isVideoMaximized && (
+            <>
+              <Panel defaultSize={50} minSize={30}>
+                <PanelGroup direction="vertical">
+                  <Panel defaultSize={50} minSize={20}>
+                    <div className="h-full overflow-y-auto bg-base-200">
+                      <div className="p-6 bg-base-100 border-b border-base-300">
+                        <div className="flex items-start justify-between mb-3">
+                          <div>
+                            <h1 className="text-3xl font-bold text-base-content">
+                              {problemData?.title || "Loading..."}
+                            </h1>
+                            <p className="text-base-content/60 mt-1">
+                              {problemData?.category || (problemData?.difficulty && `Difficulty: ${problemData.difficulty}`)}
+                            </p>
+                            <p className="text-base-content/60 mt-2">
+                              Host: {session?.host?.name || "..."}
+                              {session?.participant && <> • Guest: {session.participant.name}</>}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <button onClick={handleShare} className="btn btn-ghost btn-sm gap-2">
+                                <ShareIcon className="w-4 h-4" /> Share
+                            </button>
+                            {isHost && (
+                                <button onClick={handleEndSession} className="btn btn-error btn-sm gap-2 whitespace-nowrap">
+                                    <LogOutIcon className="w-4 h-4" /> End
+                                </button>
+                            )}
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-3">
-                        <button onClick={handleShare} className="btn btn-ghost btn-sm gap-2">
-                            <ShareIcon className="w-4 h-4" /> Share
-                        </button>
-                        {isHost && (
-                            <button onClick={handleEndSession} className="btn btn-error btn-sm gap-2 whitespace-nowrap">
-                                <LogOutIcon className="w-4 h-4" /> End
-                            </button>
+                      <div className="p-6 space-y-6">
+                        {problemData?.description && (
+                          <div className="bg-base-100 rounded-xl shadow-sm p-6 border border-base-300 prose prose-sm max-w-none">
+                            <h2 className="text-xl font-bold mb-4">Description</h2>
+                            {typeof problemData.description === "object" ? (
+                                <div className="space-y-4">
+                                    <p className="text-base-content/90 whitespace-pre-wrap">{problemData.description.text}</p>
+                                    {problemData.description.notes?.map((note, idx) => (
+                                        <div key={idx} className="bg-base-200/50 p-3 rounded-lg border-l-4 border-primary">
+                                            <p className="text-sm italic">{note}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="text-base-content/90 whitespace-pre-wrap">{problemData.description}</p>
+                            )}
+                          </div>
+                        )}
+                        
+                        {problemData?.examples && problemData.examples.length > 0 && (
+                          <div className="bg-base-100 rounded-xl shadow-sm p-6 border border-base-300">
+                            <h2 className="text-xl font-bold mb-4">Examples</h2>
+                            <div className="grid gap-4">
+                              {problemData.examples.map((example, idx) => (
+                                <div key={idx} className="bg-base-200 rounded-lg overflow-hidden border border-base-300">
+                                  <div className="px-4 py-2 bg-base-300/50 border-b border-base-300 text-xs font-bold uppercase tracking-wider">Example {idx + 1}</div>
+                                  <div className="p-4 font-mono text-sm space-y-2">
+                                    <div className="flex gap-4"><span className="text-primary font-bold">Input:</span><span className="break-all">{example.input || "None"}</span></div>
+                                    <div className="flex gap-4"><span className="text-secondary font-bold">Output:</span><span className="break-all">{example.output || "None"}</span></div>
+                                    {example.explanation && <div className="mt-2 text-xs text-base-content/60 italic">{example.explanation}</div>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         )}
                       </div>
                     </div>
-                  </div>
-
-                  <div className="p-6 space-y-6">
-                    {problemData?.description && (
-                      <div className="bg-base-100 rounded-xl shadow-sm p-6 border border-base-300 prose prose-sm max-w-none">
-                        <h2 className="text-xl font-bold mb-4">Description</h2>
-                        {typeof problemData.description === "object" ? (
-                            <div className="space-y-4">
-                                <p className="text-base-content/90 whitespace-pre-wrap">{problemData.description.text}</p>
-                                {problemData.description.notes?.map((note, idx) => (
-                                    <div key={idx} className="bg-base-200/50 p-3 rounded-lg border-l-4 border-primary">
-                                        <p className="text-sm italic">{note}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <p className="text-base-content/90 whitespace-pre-wrap">{problemData.description}</p>
-                        )}
-                      </div>
-                    )}
-                    
-                    {problemData?.examples && problemData.examples.length > 0 && (
-                      <div className="bg-base-100 rounded-xl shadow-sm p-6 border border-base-300">
-                        <h2 className="text-xl font-bold mb-4">Examples</h2>
-                        <div className="grid gap-4">
-                          {problemData.examples.map((example, idx) => (
-                            <div key={idx} className="bg-base-200 rounded-lg overflow-hidden border border-base-300">
-                              <div className="px-4 py-2 bg-base-300/50 border-b border-base-300 text-xs font-bold uppercase tracking-wider">Example {idx + 1}</div>
-                              <div className="p-4 font-mono text-sm space-y-2">
-                                <div className="flex gap-4"><span className="text-primary font-bold">Input:</span><span className="break-all">{example.input || "None"}</span></div>
-                                <div className="flex gap-4"><span className="text-secondary font-bold">Output:</span><span className="break-all">{example.output || "None"}</span></div>
-                                {example.explanation && <div className="mt-2 text-xs text-base-content/60 italic">{example.explanation}</div>}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </Panel>
-
-              <PanelResizeHandle className="h-2 bg-base-300 hover:bg-primary transition-colors cursor-row-resize shadow-inner" />
-
-              <Panel defaultSize={50} minSize={20}>
-                <PanelGroup direction="vertical">
-                  <Panel defaultSize={70} minSize={30}>
-                    <CodeEditor
-                      selectedLanguage={selectedLanguage}
-                      code={code}
-                      isRunning={isRunning}
-                      onLanguageChange={handleLanguageChange}
-                      onCodeChange={(value) => setCode(value)}
-                      onRunCode={handleRunCode}
-                    />
                   </Panel>
+
                   <PanelResizeHandle className="h-2 bg-base-300 hover:bg-primary transition-colors cursor-row-resize shadow-inner" />
-                  <Panel defaultSize={30} minSize={15}>
-                    <OutputPanel output={output} />
+
+                  <Panel defaultSize={50} minSize={20}>
+                    <PanelGroup direction="vertical">
+                      <Panel defaultSize={70} minSize={30}>
+                        <CodeEditor
+                          selectedLanguage={selectedLanguage}
+                          code={code}
+                          isRunning={isRunning}
+                          onLanguageChange={handleLanguageChange}
+                          onCodeChange={(value) => setCode(value)}
+                          onRunCode={handleRunCode}
+                        />
+                      </Panel>
+                      <PanelResizeHandle className="h-2 bg-base-300 hover:bg-primary transition-colors cursor-row-resize shadow-inner" />
+                      <Panel defaultSize={30} minSize={15}>
+                        <OutputPanel output={output} />
+                      </Panel>
+                    </PanelGroup>
                   </Panel>
                 </PanelGroup>
               </Panel>
-            </PanelGroup>
-          </Panel>
 
-          <PanelResizeHandle className="w-2 bg-base-300 hover:bg-primary transition-colors cursor-col-resize shadow-inner" />
+              <PanelResizeHandle className="w-2 bg-base-300 hover:bg-primary transition-colors cursor-col-resize shadow-inner" />
+            </>
+          )}
 
-          <Panel defaultSize={50} minSize={30}>
+          <Panel defaultSize={isVideoMaximized ? 100 : 50} minSize={30}>
             <div className="h-full bg-base-200 p-4 overflow-auto">
               {isMinimized ? (
                 <div className="h-full flex items-center justify-center animate-in fade-in zoom-in">

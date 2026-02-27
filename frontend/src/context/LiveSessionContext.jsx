@@ -17,6 +17,7 @@ export const LiveSessionProvider = ({ children }) => {
   const [isLive, setIsLive] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [isMinimized, setIsMinimized] = useState(() => localStorage.getItem("isMinimized") === "true");
+  const [isVideoMaximized, setIsVideoMaximized] = useState(false);
 
   const [streamClient, setStreamClient] = useState(null);
   const [call, setCall] = useState(null);
@@ -330,6 +331,8 @@ export const LiveSessionProvider = ({ children }) => {
         setExecutionResult,
         isExecuting,
         setIsExecuting,
+        isVideoMaximized,
+        setIsVideoMaximized,
       }}
     >
       {children}

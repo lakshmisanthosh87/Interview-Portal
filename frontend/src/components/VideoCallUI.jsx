@@ -1,7 +1,7 @@
 import {
   CallControls,
   CallingState,
-  PaginatedGridLayout,
+  SpeakerLayout,
   useCallStateHooks,
 } from "@stream-io/video-react-sdk";
 import { Loader2Icon, MessageSquareIcon, UsersIcon, XIcon } from "lucide-react";
@@ -12,12 +12,17 @@ import { Channel, Chat, MessageInput, MessageList, Thread, Window } from "stream
 import "@stream-io/video-react-sdk/dist/css/styles.css";
 import "stream-chat-react/dist/css/v2/index.css";
 
-import { Minimize2Icon } from "lucide-react";
+import { MaximizeIcon, Minimize2Icon, MinimizeIcon } from "lucide-react";
 import { useLiveSession } from "../context/LiveSessionContext.jsx";
 
 function VideoCallUI({ chatClient, channel, isMini = false }) {
   const navigate = useNavigate();
-  const { setIsMinimized, leaveSession } = useLiveSession();
+  const { 
+    setIsMinimized, 
+    leaveSession, 
+    isVideoMaximized, 
+    setIsVideoMaximized 
+  } = useLiveSession();
   const { useCallCallingState, useParticipants } = useCallStateHooks();
   const callingState = useCallCallingState();
   const allParticipants = useParticipants();
@@ -97,8 +102,15 @@ function VideoCallUI({ chatClient, channel, isMini = false }) {
           </div>
         )}
 
-        <div className="flex-1 bg-base-300 rounded-lg overflow-hidden relative">
-          <PaginatedGridLayout groupSize={2} />
+        <div 
+          className="flex-1 bg-base-300 rounded-lg overflow-hidden relative cursor-pointer group"
+          onClick={() => setIsVideoMaximized(!isVideoMaximized)}
+          title={isVideoMaximized ? "Click to exit full screen" : "Click to maximize video"}
+        >
+          <SpeakerLayout participantsBarPosition="bottom" />
+          <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 p-2 rounded-full text-white pointer-events-none">
+            {isVideoMaximized ? <MinimizeIcon className="size-5" /> : <MaximizeIcon className="size-5" />}
+          </div>
         </div>
 
         {!isMini && (
@@ -110,6 +122,24 @@ function VideoCallUI({ chatClient, channel, isMini = false }) {
             >
               <Minimize2Icon className="size-4" />
               Minimize
+            </button>
+
+            <button
+              onClick={() => setIsVideoMaximized(!isVideoMaximized)}
+              className={`btn btn-sm gap-2 ${isVideoMaximized ? "btn-secondary" : "btn-ghost"}`}
+              title={isVideoMaximized ? "Exit Full Screen" : "Full Screen"}
+            >
+              {isVideoMaximized ? (
+                <>
+                  <MinimizeIcon className="size-4" />
+                  Exit Full Screen
+                </>
+              ) : (
+                <>
+                  <MaximizeIcon className="size-4" />
+                  Full Screen
+                </>
+              )}
             </button>
             <CallControls onLeave={handleLeave} />
           </div>
