@@ -20,8 +20,6 @@ function SessionPage() {
   const navigate = useNavigate();
   const { id } = useParams();
   const { user } = useUser();
-  const [output, setOutput] = useState(null);
-  const [isRunning, setIsRunning] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const hasInitiatedJoin = useRef(false);
 
@@ -52,7 +50,11 @@ function SessionPage() {
     selectedLanguage,
     setSelectedLanguage,
     activeProblemIndex,
-    switchProblem
+    switchProblem,
+    executionResult: output,
+    setExecutionResult: setOutput,
+    isExecuting: isRunning,
+    setIsExecuting: setIsRunning
   } = useLiveSession();
 
   const isInitializingCall = globalInitializing || loadingSession;
@@ -131,11 +133,19 @@ function SessionPage() {
   };
 
   const handleRunCode = async () => {
+    if (channel) {
+        channel.sendEvent({ type: "code-run-start" });
+    }
     setIsRunning(true);
     setOutput(null);
     const result = await executeCode(selectedLanguage, code);
+    
     setOutput(result);
     setIsRunning(false);
+    
+    if (channel) {
+        channel.sendEvent({ type: "code-run-result", result });
+    }
   };
 
   const handleEndSession = async () => {

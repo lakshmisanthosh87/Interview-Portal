@@ -29,6 +29,10 @@ export const LiveSessionProvider = ({ children }) => {
   const [activeProblemIndex, setActiveProblemIndex] = useState(0);
   const [code, setCode] = useState("");
   const [selectedLanguage, setSelectedLanguage] = useState("javascript");
+  
+  // Real-time execution output state
+  const [executionResult, setExecutionResult] = useState(null);
+  const [isExecuting, setIsExecuting] = useState(false);
 
   // Refs for latest values
   const callRef = useRef(null);
@@ -101,6 +105,7 @@ export const LiveSessionProvider = ({ children }) => {
     const savedLang = localStorage.getItem(getStorageKey(activeSessionId, index, "lang"));
     
     setActiveProblemIndex(index);
+    setExecutionResult(null); // Clear previous output
     if (savedCode !== null) setCode(savedCode);
     else setCode(""); // SessionPage will set starter code
     if (savedLang !== null) setSelectedLanguage(savedLang);
@@ -148,12 +153,21 @@ export const LiveSessionProvider = ({ children }) => {
         else setSelectedLanguage("javascript");
         
         lastUpdateRef.current = Date.now();
+      } else if (event.type === "code-run-start") {
+        console.log("[CodeSync] Received code-run-start");
+        setExecutionResult(null);
+        setIsExecuting(true);
+      } else if (event.type === "code-run-result") {
+        console.log("[CodeSync] Received code-run-result", event.result);
+        setExecutionResult(event.result);
+        setIsExecuting(false);
       } else if (event.type === "request-sync" && sessionData?.host?.clerkId === user.id) {
         channel.sendEvent({
           type: "code-update",
           code: codeRef.current,
           language: selectedLanguageRef.current,
           activeProblemIndex: activeProblemIndexRef.current,
+          executionResult: null, // Don't sync output on join for now to keep it clean
           timestamp: Date.now(),
         });
       }
@@ -311,7 +325,11 @@ export const LiveSessionProvider = ({ children }) => {
         selectedLanguage,
         setSelectedLanguage,
         activeProblemIndex,
-        switchProblem
+        switchProblem,
+        executionResult,
+        setExecutionResult,
+        isExecuting,
+        setIsExecuting,
       }}
     >
       {children}
