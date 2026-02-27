@@ -100,6 +100,8 @@ app.use("/api/sessions", sessionRoutes)
 app.use("/api/ai", aiRoutes)
 app.use("/api/problems", problemRoutes)
 
+app.use("/recordings", express.static(path.join(__dirname, "../public/recordings")));
+
 app.get("/health", (req, res) => {
   res.status(200).json({ msg: "api is up and running" })
 })

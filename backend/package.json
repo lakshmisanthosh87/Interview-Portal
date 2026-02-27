@@ -25,6 +25,7 @@
     "inngest": "^3.50.0",
     "mongoose": "^9.1.5",
     "morgan": "^1.10.1",
+    "multer": "^2.1.0",
     "stream-chat": "^9.31.0",
     "svix": "^1.84.1"
   }

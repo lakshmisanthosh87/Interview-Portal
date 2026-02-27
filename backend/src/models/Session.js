@@ -49,7 +49,15 @@ const sessionSchema = new mongoose.Schema({
     callId: {
         type: String,
         default: "",
-    }
+    },
+    recordingUrl: {
+        type: String,
+        default: ""
+    },
+    allParticipants: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User"
+    }]
 }, { timestamps: true })
 
 

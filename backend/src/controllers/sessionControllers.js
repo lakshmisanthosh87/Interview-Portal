@@ -28,7 +28,8 @@ export async function createSession(req, res) {
             difficulty,
             host: userId,
             callId,
-            activeProblemIndex: 0
+            activeProblemIndex: 0,
+            allParticipants: [userId]
         })
 
         const displayTitle = problems?.[0] || "Custom Problem";
@@ -94,7 +95,7 @@ export async function getMyRecentSession(req, res) {
 
         const sessions = await Session.find({
             status: "completed",
-            $or: [{ host: userId }, { participant: userId }, { participants: userId }]
+            allParticipants: userId
         })
             .populate("host", "name profileImage email clerkId")
             .populate("participant", "name profileImage email clerkId")
@@ -157,6 +158,10 @@ export async function joinSession(req, res) {
 
         if (!session.participants.includes(userId)) {
             session.participants.push(userId)
+        }
+
+        if (!session.allParticipants.includes(userId)) {
+            session.allParticipants.push(userId)
         }
 
         if (!session.participant) {
@@ -349,6 +354,30 @@ export async function deleteSession(req, res) {
         res.status(200).json({ message: "Session deleted successfully" });
     } catch (error) {
         console.log("Error in deleteSession controller:", error.message);
+        res.status(500).json({ message: "Internal server error" });
+    }
+}
+
+export async function saveRecording(req, res) {
+    try {
+        const { id } = req.params;
+        const session = await Session.findById(id);
+
+        if (!session) {
+            return res.status(404).json({ message: "Session not found" });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ message: "No recording file provided" });
+        }
+
+        const recordingPath = `/recordings/${req.file.filename}`;
+        session.recordingUrl = recordingPath;
+        await session.save();
+
+        res.status(200).json({ message: "Recording saved successfully", recordingUrl: recordingPath });
+    } catch (error) {
+        console.log("Error in saveRecording controller:", error.message);
         res.status(500).json({ message: "Internal server error" });
     }
 }

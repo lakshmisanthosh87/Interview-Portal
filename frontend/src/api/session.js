@@ -48,4 +48,14 @@ export const sessionApi = {
     const response = await axiosInstance.delete(`sessions/${id}`);
     return response.data;
   },
+  uploadRecording: async (id, recordingBlob) => {
+    const formData = new FormData();
+    formData.append("recording", recordingBlob, `recording_${id}.webm`);
+    const response = await axiosInstance.post(`sessions/${id}/recording`, formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
+    return response.data;
+  },
 };

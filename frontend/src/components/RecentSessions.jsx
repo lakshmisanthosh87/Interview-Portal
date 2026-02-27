@@ -4,12 +4,14 @@ import { formatDistanceToNow } from "date-fns";
 import { useDeleteSession } from "../hooks/useSessions";
 import { useUser } from "@clerk/clerk-react";
 import { useState } from "react";
+import toast from "react-hot-toast";
+
 
 function RecentSessions({ sessions, isLoading }) {
   console.log("RecentSessions data:", sessions);
   const { user } = useUser();
   const deleteSessionMutation = useDeleteSession();
-  const [openMenuId, setOpenMenuId] = useState(null);
+  const [selectedVideo, setSelectedVideo] = useState(null);
 
   const handleDelete = (e, sessionId) => {
     e.preventDefault();
@@ -17,7 +19,23 @@ function RecentSessions({ sessions, isLoading }) {
     if (confirm("Are you sure you want to delete this session permanently?")) {
       deleteSessionMutation.mutate(sessionId);
     }
-    setOpenMenuId(null);
+  };
+
+  const handleViewRecording = (e, session) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!session.recordingUrl) {
+      toast.error("No recording available for this session");
+      return;
+    }
+    setSelectedVideo(session);
+  };
+
+  const getFullRecordingUrl = (url) => {
+    // If VITE_API_URL ends in /api, strip it to get the base server URL
+    let baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
+    baseUrl = baseUrl.replace(/\/api$/, "");
+    return `${baseUrl}${url}`;
   };
 
   return (
@@ -62,7 +80,10 @@ function RecentSessions({ sessions, isLoading }) {
                     </button>
                     <ul tabIndex={0} className="dropdown-content z-[20] menu p-2 shadow bg-base-100 rounded-box w-52 border border-base-300">
                       <li>
-                        <button className="flex items-center gap-2">
+                        <button 
+                          onClick={(e) => handleViewRecording(e, session)}
+                          className="flex items-center gap-2"
+                        >
                           <Eye className="size-4" /> View Recording
                         </button>
                       </li>
@@ -150,6 +171,37 @@ function RecentSessions({ sessions, isLoading }) {
           )}
         </div>
       </div>
+
+      {/* VIDEO PLAYER MODAL */}
+      {selectedVideo && (
+        <div className="modal modal-open">
+          <div className="modal-box max-w-4xl p-0 overflow-hidden bg-black">
+            <div className="p-4 bg-base-900 border-b border-white/10 flex items-center justify-between">
+              <h3 className="font-bold text-white">Recording: {selectedVideo.title}</h3>
+              <button 
+                onClick={() => setSelectedVideo(null)} 
+                className="btn btn-sm btn-circle btn-ghost text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="aspect-video w-full bg-black flex items-center justify-center">
+              <video 
+                src={getFullRecordingUrl(selectedVideo.recordingUrl)} 
+                controls 
+                autoPlay 
+                className="w-full h-full"
+              />
+            </div>
+            <div className="p-4 bg-base-900 border-t border-white/10 flex justify-end">
+              <button onClick={() => setSelectedVideo(null)} className="btn btn-sm">Close</button>
+            </div>
+          </div>
+          <form method="dialog" className="modal-backdrop">
+            <button onClick={() => setSelectedVideo(null)}>close</button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

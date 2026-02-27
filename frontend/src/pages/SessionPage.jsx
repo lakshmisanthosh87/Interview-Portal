@@ -7,10 +7,11 @@ import { executeCode } from "../lib/piston";
 import Navbar from "../components/Navbar";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { getDifficultyBadgeClass } from "../lib/utils";
-import { Loader2Icon, LogOutIcon, PhoneOffIcon, ShareIcon, ChevronLeftIcon, ChevronRightIcon, ListIcon, PlusIcon } from "lucide-react";
+import { Loader2Icon, LogOutIcon, PhoneOffIcon, ShareIcon, ChevronLeftIcon, ChevronRightIcon, ListIcon, PlusIcon, VideoIcon, StopCircle } from "lucide-react";
 import CodeEditor from "../components/CodeEditor";
 import OutputPanel from "../components/OutputPanel";
 import toast from "react-hot-toast";
+import { sessionApi } from "../api/session";
 
 import { StreamCall, StreamVideo } from "@stream-io/video-react-sdk";
 import VideoCallUI from "../components/VideoCallUI";
@@ -24,6 +25,12 @@ function SessionPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isAddProblemOpen, setIsAddProblemOpen] = useState(false);
   const hasInitiatedJoin = useRef(false);
+
+  // Recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const recordingStreamRef = useRef(null);
 
   const { data: sessionData, isLoading: loadingSession, refetch } = useSessionById(id);
   const joinSessionMutation = useJoinSession();
@@ -193,6 +200,81 @@ function SessionPage() {
     setJoinError(null);
     hasInitiatedJoin.current = false;
   }, []);
+
+  const startRecording = async () => {
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true
+      });
+
+      // Capture audio from microphone too if possible
+      let combinedStream = screenStream;
+      try {
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const audioContext = new AudioContext();
+        const dest = audioContext.createMediaStreamDestination();
+        
+        const screenSource = audioContext.createMediaStreamSource(screenStream);
+        const micSource = audioContext.createMediaStreamSource(audioStream);
+        
+        screenSource.connect(dest);
+        micSource.connect(dest);
+        
+        const tracks = [...screenStream.getVideoTracks(), ...dest.stream.getAudioTracks()];
+        combinedStream = new MediaStream(tracks);
+      } catch (e) {
+        console.log("Mic audio not available or denied, recording screen audio only");
+      }
+
+      recordingStreamRef.current = combinedStream;
+      const mediaRecorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm; codecs=vp9' });
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        
+        // Upload to backend
+        const toastId = toast.loading("Uploading recording...");
+        try {
+          await sessionApi.uploadRecording(id, blob);
+          toast.success("Recording saved!", { id: toastId });
+        } catch (error) {
+          console.error("Upload failed", error);
+          toast.error("Failed to save recording", { id: toastId });
+        }
+
+        // Cleanup
+        recordingStreamRef.current.getTracks().forEach(track => track.stop());
+        setIsRecording(false);
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      toast.success("Recording started");
+
+      // Handle user stopping screen share via browser UI
+      screenStream.getVideoTracks()[0].onended = () => {
+        if (mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+      };
+
+    } catch (err) {
+      console.error("Error starting recording:", err);
+      toast.error("Could not start recording");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+  };
 
   return (
     <div className="h-screen bg-base-100 flex flex-col overflow-hidden">
@@ -391,7 +473,13 @@ function SessionPage() {
                 <StreamVideo client={streamClient}>
                   <StreamCall call={call}>
                     <div className="h-full rounded-2xl overflow-hidden shadow-2xl bg-black border border-base-300">
-                      <VideoCallUI chatClient={chatClient} channel={channel} />
+                      <VideoCallUI 
+                        chatClient={chatClient} 
+                        channel={channel} 
+                        isRecording={isRecording}
+                        startRecording={startRecording}
+                        stopRecording={stopRecording}
+                      />
                     </div>
                   </StreamCall>
                 </StreamVideo>

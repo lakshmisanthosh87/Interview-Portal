@@ -12,10 +12,17 @@ import { Channel, Chat, MessageInput, MessageList, Thread, Window } from "stream
 import "@stream-io/video-react-sdk/dist/css/styles.css";
 import "stream-chat-react/dist/css/v2/index.css";
 
-import { MaximizeIcon, Minimize2Icon, MinimizeIcon } from "lucide-react";
+import { MaximizeIcon, Minimize2Icon, MinimizeIcon, VideoIcon, StopCircle } from "lucide-react";
 import { useLiveSession } from "../context/LiveSessionContext.jsx";
 
-function VideoCallUI({ chatClient, channel, isMini = false }) {
+function VideoCallUI({ 
+  chatClient, 
+  channel, 
+  isMini = false,
+  isRecording,
+  startRecording,
+  stopRecording
+}) {
   const navigate = useNavigate();
   const { 
     setIsMinimized, 
@@ -141,6 +148,15 @@ function VideoCallUI({ chatClient, channel, isMini = false }) {
                 </>
               )}
             </button>
+            <button
+              onClick={isRecording ? stopRecording : startRecording}
+              className={`btn btn-sm gap-2 ${isRecording ? 'btn-error animate-pulse' : 'btn-ghost'}`}
+              title={isRecording ? "Stop Recording" : "Start Recording"}
+            >
+              {isRecording ? <StopCircle className="size-4" /> : <VideoIcon className="size-4" />}
+              {isRecording ? "Stop" : "Record"}
+            </button>
+
             <CallControls onLeave={handleLeave} />
           </div>
         )}
