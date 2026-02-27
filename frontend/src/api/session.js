@@ -36,4 +36,8 @@ export const sessionApi = {
     const response = await axiosInstance.get(`chat/token`);
     return response.data;
   },
+  updateActiveProblem: async (id, activeProblemIndex) => {
+    const response = await axiosInstance.patch(`sessions/${id}/active-problem`, { activeProblemIndex });
+    return response.data;
+  },
 };

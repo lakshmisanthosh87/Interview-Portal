@@ -1,15 +1,20 @@
 import mongoose from "mongoose"
 
 const sessionSchema = new mongoose.Schema({
-    problem: {
+    // Support for multiple problems (existing list)
+    problems: [{
         type: String,
         required: true
-
-    },
-    customProblemId: {
+    }],
+    // Support for multiple custom problems
+    customProblems: [{
         type: mongoose.Schema.Types.ObjectId,
-        ref: "Problem",
-        default: null
+        ref: "Problem"
+    }],
+    // Tracking active problem
+    activeProblemIndex: {
+        type: Number,
+        default: 0
     },
 
     difficulty: {

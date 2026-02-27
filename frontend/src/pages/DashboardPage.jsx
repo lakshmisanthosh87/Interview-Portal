@@ -15,23 +15,20 @@ function DashboardPage() {
   const navigate = useNavigate();
   const { user } = useUser();
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [roomConfig, setRoomConfig] = useState({ problem: "", difficulty: "" });
 
   const createSessionMutation = useCreateSession();
 
   const { data: activeSessionsData, isLoading: loadingActiveSessions } = useActiveSessions();
   const { data: recentSessionsData, isLoading: loadingRecentSessions } = useMyRecentSessions();
 
-  const handleCreateRoom = (customConfig) => {
-    const config = (customConfig && customConfig.problem) ? customConfig : roomConfig;
-
-    if (!config.problem || !config.difficulty) return;
+  const handleCreateRoom = (config) => {
+    if ((!config.problems || config.problems.length === 0) && (!config.customProblems || config.customProblems.length === 0)) return;
 
     createSessionMutation.mutate(
       {
-        problem: config.problem,
-        difficulty: config.difficulty.toLowerCase(),
-        customProblemId: config.customProblemId,
+        problems: config.problems,
+        difficulty: config.difficulty,
+        customProblems: config.customProblems,
       },
       {
         onSuccess: (data) => {
@@ -79,8 +76,6 @@ function DashboardPage() {
       <CreateSessionModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        roomConfig={roomConfig}
-        setRoomConfig={setRoomConfig}
         onCreateRoom={handleCreateRoom}
         isCreating={createSessionMutation.isPending}
       />

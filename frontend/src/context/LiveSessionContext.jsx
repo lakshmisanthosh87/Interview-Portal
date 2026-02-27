@@ -25,22 +25,18 @@ export const LiveSessionProvider = ({ children }) => {
   const [isInitializingCall, setIsInitializingCall] = useState(false);
   const [joinError, setJoinError] = useState(null);
 
-  // Persistence State for Code Editor
-  const [code, setCode] = useState(() => {
-    const saved = localStorage.getItem(`code_${activeSessionId}`);
-    return saved || "";
-  });
-  const [selectedLanguage, setSelectedLanguage] = useState(() => {
-    const saved = localStorage.getItem(`lang_${activeSessionId}`);
-    return saved || "javascript";
-  });
+  // Persistence State for Code Editor (Per Problem)
+  const [activeProblemIndex, setActiveProblemIndex] = useState(0);
+  const [code, setCode] = useState("");
+  const [selectedLanguage, setSelectedLanguage] = useState("javascript");
 
-  // Refs for latest values in async functions (avoids stale closures)
+  // Refs for latest values
   const callRef = useRef(null);
   const chatClientRef = useRef(null);
   const isLiveRef = useRef(false);
   const codeRef = useRef(code);
   const selectedLanguageRef = useRef(selectedLanguage);
+  const activeProblemIndexRef = useRef(activeProblemIndex);
   const lastUpdateRef = useRef(0);
   const isRemoteChange = useRef(false);
 
@@ -49,6 +45,12 @@ export const LiveSessionProvider = ({ children }) => {
   useEffect(() => { isLiveRef.current = isLive; }, [isLive]);
   useEffect(() => { codeRef.current = code; }, [code]);
   useEffect(() => { selectedLanguageRef.current = selectedLanguage; }, [selectedLanguage]);
+  useEffect(() => { activeProblemIndexRef.current = activeProblemIndex; }, [activeProblemIndex]);
+
+  // Persistent storage key helper
+  const getStorageKey = useCallback((sessionId, index, type) => {
+    return `${type}_${sessionId}_p${index}`;
+  }, []);
 
   // Sync activeSessionId to localStorage
   useEffect(() => {
@@ -66,22 +68,48 @@ export const LiveSessionProvider = ({ children }) => {
   // Persist code and language to localStorage
   useEffect(() => {
     if (activeSessionId) {
-      localStorage.setItem(`code_${activeSessionId}`, code);
-      localStorage.setItem(`lang_${activeSessionId}`, selectedLanguage);
+      localStorage.setItem(getStorageKey(activeSessionId, activeProblemIndex, "code"), code);
+      localStorage.setItem(getStorageKey(activeSessionId, activeProblemIndex, "lang"), selectedLanguage);
     }
-  }, [code, selectedLanguage, activeSessionId]);
+  }, [code, selectedLanguage, activeSessionId, activeProblemIndex, getStorageKey]);
 
-  // Cross-tab sync
-  useEffect(() => {
-    const handleStorageChange = (e) => {
-      if (e.key === "activeSessionId") setActiveSessionId(e.newValue);
-      if (e.key === "isMinimized") setIsMinimized(e.newValue === "true");
-    };
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
-  }, []);
+  // Function to switch problem
+  const switchProblem = useCallback(async (index) => {
+    if (!activeSessionId) return;
+    
+    // If we are participant (host or guest), notify backend and others
+    const isHost = sessionData?.host?.clerkId === user?.id;
+    const isParticipant = sessionData?.participant?.clerkId === user?.id;
+    
+    if (isHost || isParticipant) {
+      try {
+        await sessionApi.updateActiveProblem(activeSessionId, index);
+        if (channel) {
+          channel.sendEvent({
+            type: "problem-switch",
+            index,
+            userId: user.id
+          });
+        }
+      } catch (err) {
+        console.error("Failed to update active problem on server:", err);
+      }
+    }
 
-  // Real-time synchronization logic moved to Context
+    // Load code for the new problem
+    const savedCode = localStorage.getItem(getStorageKey(activeSessionId, index, "code"));
+    const savedLang = localStorage.getItem(getStorageKey(activeSessionId, index, "lang"));
+    
+    setActiveProblemIndex(index);
+    if (savedCode !== null) setCode(savedCode);
+    else setCode(""); // SessionPage will set starter code
+    if (savedLang !== null) setSelectedLanguage(savedLang);
+    else setSelectedLanguage("javascript");
+    
+    lastUpdateRef.current = Date.now();
+  }, [activeSessionId, channel, user, sessionData, getStorageKey]);
+
+  // Real-time synchronization logic
   useEffect(() => {
     if (!channel || !user) return;
 
@@ -92,7 +120,6 @@ export const LiveSessionProvider = ({ children }) => {
         if (event.timestamp > lastUpdateRef.current) {
           lastUpdateRef.current = event.timestamp;
           if (event.code !== codeRef.current) {
-            console.log("[CodeSync] Context: Received remote code update");
             isRemoteChange.current = true;
             setCode(event.code);
           }
@@ -108,12 +135,25 @@ export const LiveSessionProvider = ({ children }) => {
             setCode(event.starterCode);
           }
         }
+      } else if (event.type === "problem-switch") {
+        console.log("[CodeSync] Received problem-switch to index", event.index);
+        const index = event.index;
+        const savedCode = localStorage.getItem(getStorageKey(activeSessionId, index, "code"));
+        const savedLang = localStorage.getItem(getStorageKey(activeSessionId, index, "lang"));
+        
+        setActiveProblemIndex(index);
+        if (savedCode !== null) setCode(savedCode);
+        else setCode("");
+        if (savedLang !== null) setSelectedLanguage(savedLang);
+        else setSelectedLanguage("javascript");
+        
+        lastUpdateRef.current = Date.now();
       } else if (event.type === "request-sync" && sessionData?.host?.clerkId === user.id) {
-        console.log("[CodeSync] Context: Sending state to requester");
         channel.sendEvent({
           type: "code-update",
           code: codeRef.current,
           language: selectedLanguageRef.current,
+          activeProblemIndex: activeProblemIndexRef.current,
           timestamp: Date.now(),
         });
       }
@@ -121,14 +161,12 @@ export const LiveSessionProvider = ({ children }) => {
 
     channel.on(handleEvent);
     
-    // Request initial sync if we are the participant just joining
     if (sessionData?.host?.clerkId !== user.id && isLive) {
-      console.log("[CodeSync] Context: Participant requesting sync");
       channel.sendEvent({ type: "request-sync" });
     }
 
     return () => channel.off(handleEvent);
-  }, [channel, user, isLive, sessionData]);
+  }, [channel, user, isLive, sessionData, activeSessionId, getStorageKey]);
 
   // Debounced emission
   useEffect(() => {
@@ -146,36 +184,18 @@ export const LiveSessionProvider = ({ children }) => {
         type: "code-update",
         code: code,
         language: selectedLanguage,
+        activeProblemIndex: activeProblemIndex,
         timestamp: now,
       });
     }, 200);
 
     return () => clearTimeout(timeout);
-  }, [code, channel, user, isLive, selectedLanguage]);
+  }, [code, channel, user, isLive, selectedLanguage, activeProblemIndex]);
 
-  // Helper to clean up connection resources only
   const cleanupConnection = useCallback(async () => {
-    try {
-      if (callRef.current) {
-        console.log("[LiveSession] Leaving video call...");
-        await callRef.current.leave();
-      }
-    } catch (e) {
-      console.error("[LiveSession] Error leaving call:", e);
-    }
-    try {
-      if (chatClientRef.current?.userID) {
-        console.log("[LiveSession] Disconnecting chat...");
-        await chatClientRef.current.disconnectUser();
-      }
-    } catch (e) {
-      console.error("[LiveSession] Error disconnecting chat:", e);
-    }
-    try {
-      await disconnectStreamClient();
-    } catch (e) {
-      console.error("[LiveSession] Error disconnecting stream:", e);
-    }
+    try { if (callRef.current) await callRef.current.leave(); } catch (e) {}
+    try { if (chatClientRef.current?.userID) await chatClientRef.current.disconnectUser(); } catch (e) {}
+    try { await disconnectStreamClient(); } catch (e) {}
     setStreamClient(null);
     setCall(null);
     setChatClient(null);
@@ -184,22 +204,8 @@ export const LiveSessionProvider = ({ children }) => {
   }, []);
 
   const joinSession = useCallback(async (session, isHost, isParticipant) => {
-    console.log("[LiveSession] joinSession called", {
-      callId: session?.callId,
-      sessionId: session?._id,
-      isHost,
-      isParticipant,
-      isJoiningRef: isJoiningRef.current,
-      isLive: isLiveRef.current
-    });
-
-    if (!session?.callId || !user?.id) {
-      console.warn("[LiveSession] Missing callId or user. Aborting join.");
-      return;
-    }
-
-    if (isJoiningRef.current) return;
-    if (isLiveRef.current) return;
+    if (!session?.callId || !user?.id) return;
+    if (isJoiningRef.current || isLiveRef.current) return;
 
     isJoiningRef.current = true;
     setIsJoining(true);
@@ -207,22 +213,16 @@ export const LiveSessionProvider = ({ children }) => {
     setJoinError(null);
     setActiveSessionId(session._id);
     setSessionData(session);
+    setActiveProblemIndex(session.activeProblemIndex || 0);
 
-    // Initialize code from localStorage or reset if new session
-    const savedCode = localStorage.getItem(`code_${session._id}`);
-    const savedLang = localStorage.getItem(`lang_${session._id}`);
-    if (savedCode) {
-      setCode(savedCode);
-    } else {
-      setCode(""); // Reset for new session so SessionPage can set starter code
-    }
-    if (savedLang) {
-      setSelectedLanguage(savedLang);
-    } else {
-      setSelectedLanguage("javascript");
-    }
+    const savedCode = localStorage.getItem(getStorageKey(session._id, session.activeProblemIndex || 0, "code"));
+    const savedLang = localStorage.getItem(getStorageKey(session._id, session.activeProblemIndex || 0, "lang"));
+    
+    if (savedCode) setCode(savedCode);
+    else setCode("");
+    if (savedLang) setSelectedLanguage(savedLang);
+    else setSelectedLanguage("javascript");
 
-    // Clean up any existing connection first
     if (callRef.current) {
       await cleanupConnection();
       await new Promise(resolve => setTimeout(resolve, 300));
@@ -230,10 +230,7 @@ export const LiveSessionProvider = ({ children }) => {
 
     try {
       const { token, userId, userName, userImage } = await sessionApi.getStreamToken();
-      const client = await initializeStreamClient(
-        { id: userId, name: userName, image: userImage },
-        token
-      );
+      const client = await initializeStreamClient({ id: userId, name: userName, image: userImage }, token);
       setStreamClient(client);
 
       const videoCall = client.call("default", session.callId);
@@ -241,8 +238,6 @@ export const LiveSessionProvider = ({ children }) => {
       setCall(videoCall);
 
       const apiKey = import.meta.env.VITE_STREAM_API_KEY;
-      if (!apiKey) throw new Error("VITE_STREAM_API_KEY is not defined");
-
       const chatInstance = StreamChat.getInstance(apiKey);
       if (chatInstance.userID !== userId) {
         if (chatInstance.userID) await chatInstance.disconnectUser();
@@ -256,7 +251,6 @@ export const LiveSessionProvider = ({ children }) => {
 
       setIsLive(true);
     } catch (error) {
-      console.error("[LiveSession] Error joining session:", error);
       setJoinError(error.message || "Failed to join video call");
       toast.error(error.message || "Failed to join video call");
       await cleanupConnection();
@@ -265,52 +259,33 @@ export const LiveSessionProvider = ({ children }) => {
       setIsJoining(false);
       isJoiningRef.current = false;
     }
-  }, [user, cleanupConnection]);
+  }, [user, cleanupConnection, getStorageKey]);
 
   const leaveSession = useCallback(async (isBackoff = false) => {
     if (!isBackoff && activeSessionId) {
-      try {
-        await sessionApi.leaveSession(activeSessionId);
-      } catch (error) {
-        console.error("[LiveSession] Failed to notify backend:", error.message);
-      }
+      try { await sessionApi.leaveSession(activeSessionId); } catch (error) {}
     }
-
     await cleanupConnection();
-
-    // Clear local storage for this session if it's a final leave?
-    // User asked "code state must persist", so maybe don't remove unless session completed
-    if (!isBackoff && sessionData?.status === "completed") {
-      localStorage.removeItem(`code_${activeSessionId}`);
-      localStorage.removeItem(`lang_${activeSessionId}`);
-    }
-
     setSessionData(null);
     setIsInitializingCall(false);
     setIsJoining(false);
     setIsMinimized(false);
     isJoiningRef.current = false;
-
     if (!isBackoff) {
       localStorage.removeItem("activeSessionId");
       localStorage.removeItem("isMinimized");
       setActiveSessionId(null);
     }
-  }, [activeSessionId, cleanupConnection, sessionData]);
+  }, [activeSessionId, cleanupConnection]);
 
-  // Cleanup on tab close
+  // Cross-tab sync
   useEffect(() => {
-    const handleUnload = () => {
-      if (callRef.current) {
-        try { callRef.current.leave(); } catch (e) { /* ignore */ }
-      }
+    const handleStorageChange = (e) => {
+      if (e.key === "activeSessionId") setActiveSessionId(e.newValue);
+      if (e.key === "isMinimized") setIsMinimized(e.newValue === "true");
     };
-    window.addEventListener("beforeunload", handleUnload);
-    window.addEventListener("pagehide", handleUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleUnload);
-      window.removeEventListener("pagehide", handleUnload);
-    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
   return (
@@ -335,6 +310,8 @@ export const LiveSessionProvider = ({ children }) => {
         setCode,
         selectedLanguage,
         setSelectedLanguage,
+        activeProblemIndex,
+        switchProblem
       }}
     >
       {children}
@@ -344,8 +321,6 @@ export const LiveSessionProvider = ({ children }) => {
 
 export const useLiveSession = () => {
   const context = useContext(LiveSessionContext);
-  if (!context) {
-    throw new Error("useLiveSession must be used within a LiveSessionProvider");
-  }
+  if (!context) throw new Error("useLiveSession must be used within a LiveSessionProvider");
   return context;
 };

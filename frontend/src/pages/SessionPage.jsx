@@ -1,5 +1,5 @@
 import { useUser } from "@clerk/clerk-react";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useEndSession, useJoinSession, useSessionById } from "../hooks/useSessions";
 import { PROBLEMS } from "../data/Problems";
@@ -7,7 +7,7 @@ import { executeCode } from "../lib/piston";
 import Navbar from "../components/Navbar";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { getDifficultyBadgeClass } from "../lib/utils";
-import { Loader2Icon, LogOutIcon, PhoneOffIcon, ShareIcon } from "lucide-react";
+import { Loader2Icon, LogOutIcon, PhoneOffIcon, ShareIcon, ChevronLeftIcon, ChevronRightIcon, ListIcon } from "lucide-react";
 import CodeEditor from "../components/CodeEditor";
 import OutputPanel from "../components/OutputPanel";
 import toast from "react-hot-toast";
@@ -22,6 +22,7 @@ function SessionPage() {
   const { user } = useUser();
   const [output, setOutput] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const hasInitiatedJoin = useRef(false);
 
   const { data: sessionData, isLoading: loadingSession, refetch } = useSessionById(id);
@@ -46,18 +47,27 @@ function SessionPage() {
     channel,
     joinError,
     setJoinError,
-    // Code Persistence State from Context
     code,
     setCode,
     selectedLanguage,
-    setSelectedLanguage
+    setSelectedLanguage,
+    activeProblemIndex,
+    switchProblem
   } = useLiveSession();
 
   const isInitializingCall = globalInitializing || loadingSession;
 
-  const problemData = session?.customProblemId
-    ? session.customProblemId
-    : (session?.problem ? Object.values(PROBLEMS).find((p) => p.title === session.problem) : null);
+  // Combine fixed problems and custom problems into a single list
+  const allProblems = useMemo(() => {
+    if (!session) return [];
+    const existing = (session.problems || []).map(title => 
+      Object.values(PROBLEMS).find(p => p.title === title)
+    ).filter(Boolean);
+    const custom = session.customProblems || [];
+    return [...existing, ...custom];
+  }, [session]);
+
+  const problemData = allProblems[activeProblemIndex];
 
   // Reset join flag when session ID changes
   useEffect(() => {
@@ -74,19 +84,14 @@ function SessionPage() {
 
     hasInitiatedJoin.current = true;
 
-    console.log("[SessionPage] Auto-join triggered", { isHost, isParticipant, sessionId: session._id });
-
     if (isHost || isParticipant) {
       joinSession(session, isHost, isParticipant);
     } else {
       joinSessionMutation.mutate(id, {
         onSuccess: async () => {
           const { data: refreshed } = await refetch();
-          if (refreshed?.session) {
-            joinSession(refreshed.session, false, true);
-          } else {
-            hasInitiatedJoin.current = false;
-          }
+          if (refreshed?.session) joinSession(refreshed.session, false, true);
+          else hasInitiatedJoin.current = false;
         },
         onError: (error) => {
           hasInitiatedJoin.current = false;
@@ -97,18 +102,17 @@ function SessionPage() {
     }
   }, [session?._id, user?.id, loadingSession, isLive, isJoining, globalInitializing, joinError, isHost, isParticipant, id]);
 
-  // Redirect when session is completed
+  // Redirect if completed
   useEffect(() => {
-    if (!session || loadingSession) return;
-    if (session.status === "completed") navigate("/dashboard");
-  }, [session, loadingSession, navigate]);
+    if (session?.status === "completed") navigate("/dashboard");
+  }, [session, navigate]);
 
-  // Initialize code from problem data IF it's empty
+  // Initialize code if empty
   useEffect(() => {
     if (problemData?.starterCode?.[selectedLanguage] && !code) {
       setCode(problemData.starterCode[selectedLanguage]);
     }
-  }, [problemData, selectedLanguage]); // Removed code dependency to only initialize once
+  }, [problemData, selectedLanguage, code, setCode]);
 
   const handleLanguageChange = (e) => {
     const newLang = e.target.value;
@@ -135,7 +139,7 @@ function SessionPage() {
   };
 
   const handleEndSession = async () => {
-    if (confirm("Are you sure you want to end this session? All participants will be notified.")) {
+    if (confirm("End this session?")) {
       await leaveSession();
       endSessionMutation.mutate(id, { onSuccess: () => navigate("/dashboard") });
     }
@@ -143,19 +147,52 @@ function SessionPage() {
 
   const handleShare = () => {
     navigator.clipboard.writeText(window.location.href);
-    toast.success("Session link copied to clipboard!");
+    toast.success("Link copied!");
   };
 
   const handleRetry = useCallback(() => {
     setJoinError(null);
     hasInitiatedJoin.current = false;
-  }, [setJoinError]);
+  }, []);
 
   return (
-    <div className="h-screen bg-base-100 flex flex-col">
+    <div className="h-screen bg-base-100 flex flex-col overflow-hidden">
       <Navbar />
 
-      <div className="flex-1">
+      <div className="flex-1 flex overflow-hidden">
+        {/* PROBLEM SIDEBAR */}
+        <div className={`transition-all duration-300 border-r border-base-300 bg-base-200 flex flex-col ${isSidebarOpen ? 'w-64' : 'w-0 overflow-hidden'}`}>
+            <div className="p-4 border-b border-base-300 flex items-center justify-between bg-base-100">
+                <span className="font-bold text-sm uppercase tracking-wider text-base-content/60">Problems</span>
+                <ListIcon className="size-4 text-base-content/40"/>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                {allProblems.map((p, idx) => (
+                    <button
+                        key={idx}
+                        onClick={() => switchProblem(idx)}
+                        className={`w-full text-left p-3 rounded-lg transition-all text-sm flex items-center gap-3 ${activeProblemIndex === idx ? 'bg-primary text-primary-content shadow-md' : 'hover:bg-base-300'}`}
+                    >
+                        <span className={`size-6 rounded-full flex items-center justify-center text-[10px] border ${activeProblemIndex === idx ? 'border-primary-content/30' : 'border-base-content/20'}`}>
+                            {idx + 1}
+                        </span>
+                        <span className="truncate font-medium">{p.title}</span>
+                    </button>
+                ))}
+            </div>
+
+        </div>
+
+        {/* SIDEBAR TOGGLE BUTTON */}
+        <button 
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="absolute left-[244px] top-1/2 -translate-y-1/2 z-50 btn btn-circle btn-xs btn-primary shadow-lg transition-all"
+            style={{ left: isSidebarOpen ? '244px' : '0px' }}
+        >
+            {isSidebarOpen ? <ChevronLeftIcon className="size-3"/> : <ChevronRightIcon className="size-3"/>}
+        </button>
+
+        <div className="flex-1 relative overflow-hidden">
         <PanelGroup direction="horizontal">
           <Panel defaultSize={50} minSize={30}>
             <PanelGroup direction="vertical">
@@ -165,50 +202,25 @@ function SessionPage() {
                     <div className="flex items-start justify-between mb-3">
                       <div>
                         <h1 className="text-3xl font-bold text-base-content">
-                          {session?.problem || "Loading..."}
+                          {problemData?.title || "Loading..."}
                         </h1>
-                        {problemData?.category && (
-                          <p className="text-base-content/60 mt-1">{problemData.category}</p>
-                        )}
+                        <p className="text-base-content/60 mt-1">
+                          {problemData?.category || (problemData?.difficulty && `Difficulty: ${problemData.difficulty}`)}
+                        </p>
                         <p className="text-base-content/60 mt-2">
-                          Host: {session?.host?.name || "Loading..."}
-                          {session?.participant && (
-                            <> • Participant: {session.participant.name}</>
-                          )}
-                          {!session?.participant && (
-                            <> • Waiting for participant...</>
-                          )}
+                          Host: {session?.host?.name || "..."}
+                          {session?.participant && <> • Guest: {session.participant.name}</>}
                         </p>
                       </div>
 
                       <div className="flex items-center gap-3">
-                        {session?.difficulty && (
-                          <span className={`badge badge-lg ${getDifficultyBadgeClass(session.difficulty)}`}>
-                            {session.difficulty.charAt(0).toUpperCase() + session.difficulty.slice(1)}
-                          </span>
-                        )}
-                        {isHost && session?.status === "active" && (
-                          <div className="flex items-center gap-2">
-                            <button onClick={handleShare} className="btn btn-ghost btn-sm gap-2">
-                              <ShareIcon className="w-4 h-4" />
-                              Share
+                        <button onClick={handleShare} className="btn btn-ghost btn-sm gap-2">
+                            <ShareIcon className="w-4 h-4" /> Share
+                        </button>
+                        {isHost && (
+                            <button onClick={handleEndSession} className="btn btn-error btn-sm gap-2 whitespace-nowrap">
+                                <LogOutIcon className="w-4 h-4" /> End
                             </button>
-                            <button
-                              onClick={handleEndSession}
-                              disabled={endSessionMutation.isPending}
-                              className="btn btn-error btn-sm gap-2"
-                            >
-                              {endSessionMutation.isPending ? (
-                                <Loader2Icon className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <LogOutIcon className="w-4 h-4" />
-                              )}
-                              End Session
-                            </button>
-                          </div>
-                        )}
-                        {session?.status === "completed" && (
-                          <span className="badge badge-ghost badge-lg">Completed</span>
                         )}
                       </div>
                     </div>
@@ -216,42 +228,34 @@ function SessionPage() {
 
                   <div className="p-6 space-y-6">
                     {problemData?.description && (
-                      <div className="bg-base-100 rounded-xl shadow-sm p-5 border border-base-300">
-                        <h2 className="text-xl font-bold mb-4 text-base-content">Description</h2>
-                        <div className="space-y-3 text-base leading-relaxed">
-                          {typeof problemData.description === "object" ? (
-                            <>
-                              <p className="text-base-content/90">{problemData.description.text}</p>
-                              {problemData.description.notes?.map((note, idx) => (
-                                <p key={idx} className="text-base-content/90">{note}</p>
-                              ))}
-                            </>
-                          ) : (
-                            <p className="text-base-content/90">{problemData.description}</p>
-                          )}
-                        </div>
+                      <div className="bg-base-100 rounded-xl shadow-sm p-6 border border-base-300 prose prose-sm max-w-none">
+                        <h2 className="text-xl font-bold mb-4">Description</h2>
+                        {typeof problemData.description === "object" ? (
+                            <div className="space-y-4">
+                                <p className="text-base-content/90 whitespace-pre-wrap">{problemData.description.text}</p>
+                                {problemData.description.notes?.map((note, idx) => (
+                                    <div key={idx} className="bg-base-200/50 p-3 rounded-lg border-l-4 border-primary">
+                                        <p className="text-sm italic">{note}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-base-content/90 whitespace-pre-wrap">{problemData.description}</p>
+                        )}
                       </div>
                     )}
-                    {/* ... rest of the problem description UI ... */}
+                    
                     {problemData?.examples && problemData.examples.length > 0 && (
-                      <div className="bg-base-100 rounded-xl shadow-sm p-5 border border-base-300">
-                        <h2 className="text-xl font-bold mb-4 text-base-content">Examples</h2>
-                        <div className="space-y-4">
+                      <div className="bg-base-100 rounded-xl shadow-sm p-6 border border-base-300">
+                        <h2 className="text-xl font-bold mb-4">Examples</h2>
+                        <div className="grid gap-4">
                           {problemData.examples.map((example, idx) => (
-                            <div key={idx}>
-                              <div className="flex items-center gap-2 mb-2">
-                                <span className="badge badge-sm">{idx + 1}</span>
-                                <p className="font-semibold text-base-content">Example {idx + 1}</p>
-                              </div>
-                              <div className="bg-base-200 rounded-lg p-4 font-mono text-sm space-y-1.5">
-                                <div className="flex gap-2">
-                                  <span className="text-primary font-bold min-w-[70px]">Input:</span>
-                                  <span>{example.input || ""}</span>
-                                </div>
-                                <div className="flex gap-2">
-                                  <span className="text-secondary font-bold min-w-[70px]">Output:</span>
-                                  <span>{example.output || ""}</span>
-                                </div>
+                            <div key={idx} className="bg-base-200 rounded-lg overflow-hidden border border-base-300">
+                              <div className="px-4 py-2 bg-base-300/50 border-b border-base-300 text-xs font-bold uppercase tracking-wider">Example {idx + 1}</div>
+                              <div className="p-4 font-mono text-sm space-y-2">
+                                <div className="flex gap-4"><span className="text-primary font-bold">Input:</span><span className="break-all">{example.input || "None"}</span></div>
+                                <div className="flex gap-4"><span className="text-secondary font-bold">Output:</span><span className="break-all">{example.output || "None"}</span></div>
+                                {example.explanation && <div className="mt-2 text-xs text-base-content/60 italic">{example.explanation}</div>}
                               </div>
                             </div>
                           ))}
@@ -262,7 +266,7 @@ function SessionPage() {
                 </div>
               </Panel>
 
-              <PanelResizeHandle className="h-2 bg-base-300 hover:bg-primary transition-colors cursor-row-resize" />
+              <PanelResizeHandle className="h-2 bg-base-300 hover:bg-primary transition-colors cursor-row-resize shadow-inner" />
 
               <Panel defaultSize={50} minSize={20}>
                 <PanelGroup direction="vertical">
@@ -276,7 +280,7 @@ function SessionPage() {
                       onRunCode={handleRunCode}
                     />
                   </Panel>
-                  <PanelResizeHandle className="h-2 bg-base-300 hover:bg-primary transition-colors cursor-row-resize" />
+                  <PanelResizeHandle className="h-2 bg-base-300 hover:bg-primary transition-colors cursor-row-resize shadow-inner" />
                   <Panel defaultSize={30} minSize={15}>
                     <OutputPanel output={output} />
                   </Panel>
@@ -285,54 +289,51 @@ function SessionPage() {
             </PanelGroup>
           </Panel>
 
-          <PanelResizeHandle className="w-2 bg-base-300 hover:bg-primary transition-colors cursor-col-resize" />
+          <PanelResizeHandle className="w-2 bg-base-300 hover:bg-primary transition-colors cursor-col-resize shadow-inner" />
 
           <Panel defaultSize={50} minSize={30}>
             <div className="h-full bg-base-200 p-4 overflow-auto">
               {isMinimized ? (
-                <div className="h-full flex items-center justify-center">
-                  <div className="text-center p-8 bg-base-100 rounded-2xl shadow-xl border border-dashed border-primary/30">
-                    <Loader2Icon className="w-12 h-12 mx-auto animate-bounce text-primary mb-4" />
-                    <h3 className="text-xl font-bold">Session is Minimized</h3>
-                    <p className="text-base-content/60 mt-2">Check the floating window or click below to expand</p>
-                    <button onClick={() => setIsMinimized(false)} className="btn btn-primary mt-6">
-                      Expand Video
+                <div className="h-full flex items-center justify-center animate-in fade-in zoom-in">
+                  <div className="text-center p-12 bg-base-100 rounded-3xl shadow-2xl border border-dashed border-primary/30">
+                    <Loader2Icon className="w-16 h-16 mx-auto animate-bounce text-primary mb-6" />
+                    <h3 className="text-2xl font-black">Video Minimized</h3>
+                    <p className="text-base-content/50 mt-2 max-w-xs">The interview continues in the floating window.</p>
+                    <button onClick={() => setIsMinimized(false)} className="btn btn-primary btn-lg mt-8 rounded-full shadow-lg hover:shadow-primary/30">
+                      Bring Back Video
                     </button>
                   </div>
                 </div>
               ) : isInitializingCall ? (
-                <div className="h-full flex items-center justify-center">
-                  <div className="text-center">
-                    <Loader2Icon className="w-12 h-12 mx-auto animate-spin text-primary mb-4" />
-                    <p className="text-lg">Connecting to video call...</p>
-                  </div>
+                <div className="h-full flex flex-col items-center justify-center gap-4">
+                  <Loader2Icon className="w-12 h-12 animate-spin text-primary" />
+                  <p className="text-base-content/60 font-medium">Connecting to secure stream...</p>
                 </div>
               ) : joinError ? (
-                <div className="h-full flex items-center justify-center">
-                  <div className="card bg-base-100 shadow-xl max-w-md border border-error/20">
-                    <div className="card-body items-center text-center">
-                      <div className="w-24 h-24 bg-error/10 rounded-full flex items-center justify-center mb-4">
-                        <PhoneOffIcon className="w-12 h-12 text-error" />
+                <div className="h-full flex items-center justify-center p-6">
+                  <div className="card bg-base-100 shadow-2xl max-w-md border border-error/20 overflow-hidden">
+                    <div className="h-2 bg-error"></div>
+                    <div className="card-body items-center text-center p-10">
+                      <div className="w-20 h-20 bg-error/10 rounded-full flex items-center justify-center mb-6">
+                        <PhoneOffIcon className="w-10 h-10 text-error" />
                       </div>
-                      <h2 className="card-title text-2xl">Connection Failed</h2>
-                      <p className="text-base-content/70 mb-6">{joinError}</p>
-                      <button onClick={handleRetry} className="btn btn-primary w-full gap-2">
-                        Retry Connection
+                      <h2 className="card-title text-2xl font-bold">Unable to Connect</h2>
+                      <p className="text-base-content/60 mb-8">{joinError}</p>
+                      <button onClick={handleRetry} className="btn btn-error btn-block gap-2 shadow-lg shadow-error/20">
+                        Try Again
                       </button>
                     </div>
                   </div>
                 </div>
               ) : !streamClient || !call ? (
-                <div className="h-full flex items-center justify-center">
-                  <div className="text-center">
-                    <Loader2Icon className="w-12 h-12 mx-auto animate-spin text-primary mb-4" />
-                    <p className="text-lg">Setting up video call...</p>
-                  </div>
+                <div className="h-full flex flex-col items-center justify-center gap-4">
+                  <Loader2Icon className="w-8 h-8 animate-spin text-primary" />
+                  <p className="text-sm font-medium tracking-wide">Finalizing setup...</p>
                 </div>
               ) : (
                 <StreamVideo client={streamClient}>
                   <StreamCall call={call}>
-                    <div className="h-full">
+                    <div className="h-full rounded-2xl overflow-hidden shadow-2xl bg-black border border-base-300">
                       <VideoCallUI chatClient={chatClient} channel={channel} />
                     </div>
                   </StreamCall>
@@ -341,6 +342,7 @@ function SessionPage() {
             </div>
           </Panel>
         </PanelGroup>
+        </div>
       </div>
     </div>
   );

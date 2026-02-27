@@ -72,3 +72,13 @@ export const useEndSession = () => {
 
   return result;
 };
+
+export const useUpdateActiveProblem = () => {
+  const result = useMutation({
+    mutationKey: ["updateActiveProblem"],
+    mutationFn: ({ id, activeProblemIndex }) => sessionApi.updateActiveProblem(id, activeProblemIndex),
+    onError: (error) => toast.error(error.response?.data?.message || "Failed to switch problem"),
+  });
+
+  return result;
+};
