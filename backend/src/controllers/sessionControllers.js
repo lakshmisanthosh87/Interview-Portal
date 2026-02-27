@@ -75,6 +75,8 @@ export async function getActiveSession(req, res) {
     try {
         const sessions = await Session.find({ status: "active" })
             .populate("host", "name profileImage email clerkId")
+            .populate("participant", "name profileImage email clerkId")
+            .populate("participants", "name profileImage email clerkId")
             .sort({ createdAt: -1 })
             .limit(20)
 
@@ -90,11 +92,14 @@ export async function getMyRecentSession(req, res) {
     try {
         const userId = req.user._id
 
-        //get sessions where user is either host ror participant
+        //get sessions where user is either host or participant
         const sessions = await Session.find({
             status: "completed",
-            $or: [{ host: userId }, { participant: userId }]
+            $or: [{ host: userId }, { participant: userId }, { participants: userId }]
         })
+            .populate("host", "name profileImage email clerkId")
+            .populate("participant", "name profileImage email clerkId")
+            .populate("participants", "name profileImage email clerkId")
             .sort({ createdAt: -1 })
             .limit(20)
 
@@ -145,19 +150,21 @@ export async function joinSession(req, res) {
             return res.status(400).json({ message: "cannot join a completed session" })
         }
 
-        if (session.host.toString() == userId.toString()) {
-            return res.status(400).json({ message: "Host cannot join their own session as participant" })
+        // Allow host to re-join without taking a participant slot
+        if (session.host.toString() === userId.toString()) {
+            return res.status(200).json({ session, message: "Host re-joined" });
         }
-        // check if session is already full
-        if (session.participant) {
-            return res.status(409).json({ message: "session is full" })
+
+        // Strict 2-person limit: check if someone else is already the participant
+        if (session.participant && session.participant.toString() !== userId.toString()) {
+            return res.status(409).json({ message: "Session is full. Only 2 participants (1 host + 1 guest) allowed." })
         }
 
         if (!session.participants.includes(userId)) {
             session.participants.push(userId)
         }
 
-        // Maintain backward compatibility for single participant field
+        // Set the primary participant field
         if (!session.participant) {
             session.participant = userId
         }
@@ -219,6 +226,49 @@ export async function endSession(req, res) {
     }
     catch (error) {
         console.log("error in endSession controller:", error.message)
+        res.status(500).json({ message: "Internal server error" })
+    }
+}
+
+export async function leaveSessionController(req, res) {
+    try {
+        const { id } = req.params
+        const userId = req.user._id
+        const clerkId = req.user.clerkId
+
+        const session = await Session.findById(id)
+
+        if (!session) {
+            return res.status(404).json({ message: "Session not found" })
+        }
+
+        // If host leaves, we don't end the session here (they might just be refreshing)
+        // unless they explicitly end it. But for participants:
+        if (session.participant?.toString() === userId.toString()) {
+            session.participant = null;
+        }
+
+        // Remove from current participants array
+        session.participants = session.participants.filter(p => p.toString() !== userId.toString());
+
+        await session.save()
+
+        // Optional: Remove from Stream Chat/Video members if you want to be strict
+        try {
+            const channel = chatClient.channel("messaging", session.callId)
+            await channel.removeMembers([clerkId])
+
+            const videoCall = streamClient.video.call("default", session.callId)
+            await videoCall.updateCallMembers({
+                remove_members: [clerkId]
+            })
+        } catch (streamError) {
+            console.log("Warning: Failed to remove member from Stream on leave:", streamError.message)
+        }
+
+        res.status(200).json({ message: "Left session successfully" })
+    } catch (error) {
+        console.log("error in leaveSession controller:", error.message)
         res.status(500).json({ message: "Internal server error" })
     }
 }

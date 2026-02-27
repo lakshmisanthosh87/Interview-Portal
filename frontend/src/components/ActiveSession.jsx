@@ -70,7 +70,9 @@ function ActiveSession({ sessions, isLoading, isUserInSession }) {
                         </div>
                         <div className="flex items-center gap-1.5">
                           <UsersIcon className="size-4" />
-                          <span className="text-xs">{session.participant ? "2/2" : "1/2"}</span>
+                          <span className="text-xs">
+                            {session.participants?.length || 1}/2
+                          </span>
                         </div>
                         {session.participant && !isUserInSession(session) ? (
                           <span className="badge badge-error badge-sm">FULL</span>
@@ -81,7 +83,7 @@ function ActiveSession({ sessions, isLoading, isUserInSession }) {
                     </div>
                   </div>
 
-                  {session.participant && !isUserInSession(session) ? (
+                  {session.participants?.length >= 2 && !isUserInSession(session) ? (
                     <button className="btn btn-disabled btn-sm">Full</button>
                   ) : (
                     <Link to={`/session/${session._id}`} className="btn btn-primary btn-sm gap-2">

@@ -1,7 +1,7 @@
 import {
   CallControls,
   CallingState,
-  SpeakerLayout,
+  PaginatedGridLayout,
   useCallStateHooks,
 } from "@stream-io/video-react-sdk";
 import { Loader2Icon, MessageSquareIcon, UsersIcon, XIcon } from "lucide-react";
@@ -18,15 +18,20 @@ import { useLiveSession } from "../context/LiveSessionContext.jsx";
 function VideoCallUI({ chatClient, channel, isMini = false }) {
   const navigate = useNavigate();
   const { setIsMinimized, leaveSession } = useLiveSession();
-  const { useCallCallingState, useParticipantCount } = useCallStateHooks();
+  const { useCallCallingState, useParticipants } = useCallStateHooks();
   const callingState = useCallCallingState();
-  const participantCount = useParticipantCount();
+  const allParticipants = useParticipants();
+
+  // Filter out participants who are not fully joined or are in a "zombie" state
+  // This prevents seeing the same person twice after a refresh
+  const participants = allParticipants.filter(p => p.isJoined);
+  const participantCount = participants.length;
   const [isChatOpen, setIsChatOpen] = useState(false);
 
   // Diagnostic logging
   useEffect(() => {
-    console.log(`[VideoCallUI] Participant Count: ${participantCount}`);
-  }, [participantCount]);
+    console.log(`[VideoCallUI] Participants:`, participants.map(p => p.name));
+  }, [participants]);
 
   if (callingState === CallingState.JOINING) {
     return (
@@ -55,11 +60,21 @@ function VideoCallUI({ chatClient, channel, isMini = false }) {
         {/* Participants count badge and Chat Toggle */}
         {!isMini && (
           <div className="flex items-center justify-between gap-2 bg-base-100 p-3 rounded-lg shadow">
-            <div className="flex items-center gap-2">
-              <UsersIcon className="w-5 h-5 text-primary" />
-              <span className="font-semibold">
-                {participantCount} {participantCount === 1 ? "participant" : "participants"}
-              </span>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <UsersIcon className="w-5 h-5 text-primary" />
+                <span className="font-semibold">
+                  {participantCount} {participantCount === 1 ? "participant" : "participants"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 overflow-x-auto">
+                {participants.map((p) => (
+                  <div key={p.id} className="flex items-center gap-1.5 px-3 py-1 bg-primary/10 text-primary rounded-full text-xs font-bold border border-primary/20 whitespace-nowrap">
+                    <div className="size-1.5 bg-primary rounded-full animate-pulse" />
+                    {p.name || "Anonymous"}
+                  </div>
+                ))}
+              </div>
             </div>
             {chatClient && channel && (
               <button
@@ -75,7 +90,7 @@ function VideoCallUI({ chatClient, channel, isMini = false }) {
         )}
 
         <div className="flex-1 bg-base-300 rounded-lg overflow-hidden relative">
-          <SpeakerLayout />
+          <PaginatedGridLayout groupSize={2} />
         </div>
 
         {!isMini && (

@@ -1,7 +1,7 @@
 import express from "express"
 import { protectRoute } from "../middleware/protectRoute.js"
 
-import { createSession, getActiveSession, getMyRecentSession, getSessionById, joinSession, endSession } from "../controllers/sessionControllers.js"
+import { createSession, getActiveSession, getMyRecentSession, getSessionById, joinSession, endSession, leaveSessionController } from "../controllers/sessionControllers.js"
 
 
 const router = express.Router()
@@ -13,6 +13,7 @@ router.get("/my-recent", protectRoute, getMyRecentSession)
 
 router.get("/:id", protectRoute, getSessionById)
 router.post("/:id/join", protectRoute, joinSession)
+router.post("/:id/leave", protectRoute, leaveSessionController)
 router.post("/:id/end", protectRoute, endSession)
 
 

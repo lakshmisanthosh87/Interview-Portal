@@ -86,7 +86,8 @@ const DashboardSearch = () => {
                                     <div className="flex items-center gap-1.5">
                                         <UserIcon className="w-4 h-4 text-primary" />
                                         <span className="font-medium text-base-content/80">
-                                            Host: {sessionResults.host?.name}
+                                            {sessionResults.host?.name}
+                                            {sessionResults.participant && ` & ${sessionResults.participant.name}`}
                                         </span>
                                     </div>
                                     <div className="flex items-center gap-1.5">

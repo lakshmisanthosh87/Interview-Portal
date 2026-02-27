@@ -64,9 +64,19 @@ function SessionPage() {
     if (!session || !user || loadingSession || isLive || isJoining || globalInitializing || joinError) return;
 
     if (isHost || isParticipant) {
-       joinSession(session, isHost, isParticipant);
+      joinSession(session, isHost, isParticipant);
     } else {
-       joinSessionMutation.mutate(id, { onSuccess: refetch });
+      // Only guest joins
+      joinSessionMutation.mutate(id, {
+        onSuccess: (data) => {
+          refetch();
+          joinSession(data.session, false, true);
+        },
+        onError: (error) => {
+          console.error("Join failed:", error);
+          navigate("/dashboard");
+        }
+      });
     }
   }, [session, user, loadingSession, isLive, isJoining, globalInitializing, joinError, isHost, isParticipant, id]);
 
@@ -94,11 +104,11 @@ function SessionPage() {
 
     // Sync language change
     if (channel) {
-       channel.sendEvent({
-         type: "language-update",
-         language: newLang,
-         starterCode: starterCode
-       });
+      channel.sendEvent({
+        type: "language-update",
+        language: newLang,
+        starterCode: starterCode
+      });
     }
   };
 
@@ -112,6 +122,8 @@ function SessionPage() {
   };
 
   // Real-time synchronization
+  const lastUpdateRef = useRef(0);
+
   useEffect(() => {
     if (!channel || !user) return;
 
@@ -120,37 +132,45 @@ function SessionPage() {
       if (!event.user || event.user.id === user.id) return;
 
       if (event.type === "code-update") {
-        if (event.code !== code) {
-           isRemoteChange.current = true;
-           setCode(event.code);
+        // Only update if the incoming update is newer than our last known update
+        if (event.timestamp > lastUpdateRef.current) {
+          lastUpdateRef.current = event.timestamp;
+          if (event.code !== code) {
+            console.log("[CodeSync] Applying remote update...");
+            isRemoteChange.current = true;
+            setCode(event.code);
+          }
         }
       } else if (event.type === "language-update") {
         if (event.language !== selectedLanguage) {
-           setSelectedLanguage(event.language);
-           if (event.starterCode) {
-              isRemoteChange.current = true;
-              setCode(event.starterCode);
-           }
+          setSelectedLanguage(event.language);
+          if (event.starterCode) {
+            isRemoteChange.current = true;
+            setCode(event.starterCode);
+          }
         }
       } else if (event.type === "request-sync" && isHost) {
+        console.log("[CodeSync] Received sync request, sending state...");
         // Send current state to joining participant
         channel.sendEvent({
           type: "code-update",
           code: code,
           language: selectedLanguage,
+          timestamp: Date.now(),
         });
       }
     };
 
     channel.on(handleEvent);
-    
+
     // Request initial sync when component mounts if not host
-    if (!isHost) {
-       channel.sendEvent({ type: "request-sync" });
+    if (!isHost && isLive) {
+      console.log("[CodeSync] Requesting initial sync from host...");
+      channel.sendEvent({ type: "request-sync" });
     }
 
     return () => channel.off(handleEvent);
-  }, [channel, user, isHost, code, selectedLanguage]);
+  }, [channel, user, isHost, code, selectedLanguage, isLive]);
 
   // Debounced code emission
   useEffect(() => {
@@ -163,12 +183,15 @@ function SessionPage() {
     }
 
     const timeout = setTimeout(() => {
+      const now = Date.now();
+      lastUpdateRef.current = now;
       console.log("[CodeSync] Emitting code update...");
       channel.sendEvent({
         type: "code-update",
         code: code,
+        timestamp: now,
       });
-    }, 500); // 500ms debounce
+    }, 200); // Reduced debounce for faster sync
 
     return () => clearTimeout(timeout);
   }, [code, channel, user, isLive]);
@@ -418,8 +441,8 @@ function SessionPage() {
                       <p className="text-base-content/70 mb-6">
                         {joinError || "Unable to connect to the video call"}
                       </p>
-                      
-                      <button 
+
+                      <button
                         onClick={() => {
                           setJoinError(null);
                           joinSession(session, isHost, isParticipant);
