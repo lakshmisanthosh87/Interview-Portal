@@ -22,9 +22,18 @@ function VideoCallUI({ chatClient, channel, isMini = false }) {
   const callingState = useCallCallingState();
   const allParticipants = useParticipants();
 
-  // Filter out participants who are not fully joined or are in a "zombie" state
-  // This prevents seeing the same person twice after a refresh
-  const participants = allParticipants.filter(p => p.isJoined);
+  // Deduplicate participants by userId to prevent the same person appearing twice
+  // (can happen when old connection lingers on Stream server during reconnect)
+  const participants = Array.from(
+    allParticipants.reduce((map, p) => {
+      const existing = map.get(p.userId);
+      // Keep the local participant entry or the most recent one
+      if (!existing || p.isLocalParticipant) {
+        map.set(p.userId, p);
+      }
+      return map;
+    }, new Map()).values()
+  );
   const participantCount = participants.length;
   const [isChatOpen, setIsChatOpen] = useState(false);
 

@@ -184,7 +184,14 @@ export async function joinSession(req, res) {
             console.log("Warning: Failed to add participant to Stream Video call:", videoError.message);
         }
 
-        res.status(200).json({ session })
+        // Return the fully populated session so frontend has complete data
+        const populatedSession = await Session.findById(id)
+            .populate("host", "name email profileImage clerkId")
+            .populate("participant", "name email profileImage clerkId")
+            .populate("participants", "name email profileImage clerkId")
+            .populate("customProblemId");
+
+        res.status(200).json({ session: populatedSession })
     } catch (error) {
 
         console.log("error in JoinSession controller:", error.message)
@@ -253,17 +260,14 @@ export async function leaveSessionController(req, res) {
 
         await session.save()
 
-        // Optional: Remove from Stream Chat/Video members if you want to be strict
+        // Remove from Stream Chat members only — do NOT remove from Video call members
+        // Stream Video SDK handles participant presence automatically via call.leave() on the frontend.
+        // Removing video members server-side prevents the user from rejoining.
         try {
             const channel = chatClient.channel("messaging", session.callId)
             await channel.removeMembers([clerkId])
-
-            const videoCall = streamClient.video.call("default", session.callId)
-            await videoCall.updateCallMembers({
-                remove_members: [clerkId]
-            })
         } catch (streamError) {
-            console.log("Warning: Failed to remove member from Stream on leave:", streamError.message)
+            console.log("Warning: Failed to remove member from Stream Chat on leave:", streamError.message)
         }
 
         res.status(200).json({ message: "Left session successfully" })

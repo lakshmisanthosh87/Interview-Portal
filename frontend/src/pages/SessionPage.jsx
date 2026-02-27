@@ -1,5 +1,5 @@
 import { useUser } from "@clerk/clerk-react";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useEndSession, useJoinSession, useSessionById } from "../hooks/useSessions";
 import { PROBLEMS } from "../data/Problems";
@@ -23,9 +23,9 @@ function SessionPage() {
   const [output, setOutput] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
   const isRemoteChange = useRef(false);
+  const hasInitiatedJoin = useRef(false);
 
   const { data: sessionData, isLoading: loadingSession, refetch } = useSessionById(id);
-
   const joinSessionMutation = useJoinSession();
   const endSessionMutation = useEndSession();
 
@@ -51,43 +51,77 @@ function SessionPage() {
 
   const isInitializingCall = globalInitializing || loadingSession;
 
-  // find the problem data based on session problem title OR custom problem data
   const problemData = session?.customProblemId
-    ? session.customProblemId // Use populated custom problem data
+    ? session.customProblemId
     : (session?.problem ? Object.values(PROBLEMS).find((p) => p.title === session.problem) : null);
 
   const [selectedLanguage, setSelectedLanguage] = useState("javascript");
   const [code, setCode] = useState(problemData?.starterCode?.[selectedLanguage] || "");
 
-  // auto-join session if user is not already a participant and not the host
+  // Refs for code sync to avoid stale closures in event handlers
+  const codeRef = useRef(code);
+  const selectedLanguageRef = useRef(selectedLanguage);
+  const lastUpdateRef = useRef(0);
+
+  useEffect(() => { codeRef.current = code; }, [code]);
+  useEffect(() => { selectedLanguageRef.current = selectedLanguage; }, [selectedLanguage]);
+
+  // Reset join flag when session ID changes (navigated to a different session)
   useEffect(() => {
-    if (!session || !user || loadingSession || isLive || isJoining || globalInitializing || joinError) return;
+    hasInitiatedJoin.current = false;
+  }, [id]);
+
+  // ===== AUTO-JOIN SESSION =====
+  // This is the ONLY place that initiates joining. Runs once when session data loads.
+  useEffect(() => {
+    if (!session || !user || loadingSession) return;
+    if (isLive || isJoining || globalInitializing) return;
+    if (hasInitiatedJoin.current) return;
+    if (joinError) return;
+    if (joinSessionMutation.isPending) return;
+
+    // Mark that we've initiated a join to prevent re-triggering
+    hasInitiatedJoin.current = true;
+
+    console.log("[SessionPage] Auto-join triggered", { isHost, isParticipant, sessionId: session._id });
 
     if (isHost || isParticipant) {
+      // Already registered as host or participant — join directly
+      console.log("[SessionPage] Joining as", isHost ? "HOST" : "PARTICIPANT");
       joinSession(session, isHost, isParticipant);
     } else {
-      // Only guest joins
+      // New guest — register with backend first
+      console.log("[SessionPage] Registering as new guest with backend...");
       joinSessionMutation.mutate(id, {
-        onSuccess: (data) => {
-          refetch();
-          joinSession(data.session, false, true);
+        onSuccess: async () => {
+          console.log("[SessionPage] Guest registration successful. Refetching session...");
+          // Refetch to get populated session with participant data
+          const { data: refreshed } = await refetch();
+          if (refreshed?.session) {
+            console.log("[SessionPage] Got populated session. Joining video call...");
+            joinSession(refreshed.session, false, true);
+          } else {
+            console.error("[SessionPage] Refetch returned no session data");
+            hasInitiatedJoin.current = false;
+          }
         },
         onError: (error) => {
-          console.error("Join failed:", error);
+          console.error("[SessionPage] Guest registration failed:", error);
+          hasInitiatedJoin.current = false;
+          toast.error(error.response?.data?.message || "Failed to join session");
           navigate("/dashboard");
         }
       });
     }
-  }, [session, user, loadingSession, isLive, isJoining, globalInitializing, joinError, isHost, isParticipant, id]);
+  }, [session?._id, user?.id, loadingSession, isLive, isJoining, globalInitializing, joinError, isHost, isParticipant]);
 
-  // redirect the "participant" when session ends
+  // Redirect when session is completed
   useEffect(() => {
     if (!session || loadingSession) return;
-
     if (session.status === "completed") navigate("/dashboard");
   }, [session, loadingSession, navigate]);
 
-  // update code when problem loads or changes
+  // Initialize code from problem data
   useEffect(() => {
     if (problemData?.starterCode?.[selectedLanguage] && !code) {
       setCode(problemData.starterCode[selectedLanguage]);
@@ -97,12 +131,10 @@ function SessionPage() {
   const handleLanguageChange = (e) => {
     const newLang = e.target.value;
     setSelectedLanguage(newLang);
-    // use problem-specific starter code
     const starterCode = problemData?.starterCode?.[newLang] || "";
     setCode(starterCode);
     setOutput(null);
 
-    // Sync language change
     if (channel) {
       channel.sendEvent({
         type: "language-update",
@@ -115,34 +147,34 @@ function SessionPage() {
   const handleRunCode = async () => {
     setIsRunning(true);
     setOutput(null);
-
     const result = await executeCode(selectedLanguage, code);
     setOutput(result);
     setIsRunning(false);
   };
 
-  // Real-time synchronization
-  const lastUpdateRef = useRef(0);
-
+  // ===== REAL-TIME CODE SYNC =====
+  // Uses refs so the handler doesn't need to re-register on every keystroke
   useEffect(() => {
     if (!channel || !user) return;
 
     const handleEvent = (event) => {
-      // Ignore events from ourselves
+      // Ignore our own events
       if (!event.user || event.user.id === user.id) return;
 
       if (event.type === "code-update") {
-        // Only update if the incoming update is newer than our last known update
         if (event.timestamp > lastUpdateRef.current) {
           lastUpdateRef.current = event.timestamp;
-          if (event.code !== code) {
-            console.log("[CodeSync] Applying remote update...");
+          if (event.code !== codeRef.current) {
+            console.log("[CodeSync] Received remote code update");
             isRemoteChange.current = true;
             setCode(event.code);
           }
+          if (event.language && event.language !== selectedLanguageRef.current) {
+            setSelectedLanguage(event.language);
+          }
         }
       } else if (event.type === "language-update") {
-        if (event.language !== selectedLanguage) {
+        if (event.language !== selectedLanguageRef.current) {
           setSelectedLanguage(event.language);
           if (event.starterCode) {
             isRemoteChange.current = true;
@@ -150,12 +182,11 @@ function SessionPage() {
           }
         }
       } else if (event.type === "request-sync" && isHost) {
-        console.log("[CodeSync] Received sync request, sending state...");
-        // Send current state to joining participant
+        console.log("[CodeSync] Sending current state to participant");
         channel.sendEvent({
           type: "code-update",
-          code: code,
-          language: selectedLanguage,
+          code: codeRef.current,
+          language: selectedLanguageRef.current,
           timestamp: Date.now(),
         });
       }
@@ -163,20 +194,19 @@ function SessionPage() {
 
     channel.on(handleEvent);
 
-    // Request initial sync when component mounts if not host
+    // Participant requests initial sync from host
     if (!isHost && isLive) {
-      console.log("[CodeSync] Requesting initial sync from host...");
+      console.log("[CodeSync] Requesting initial sync from host");
       channel.sendEvent({ type: "request-sync" });
     }
 
     return () => channel.off(handleEvent);
-  }, [channel, user, isHost, code, selectedLanguage, isLive]);
+  }, [channel, user, isHost, isLive]);
 
-  // Debounced code emission
+  // Debounced code emission to other participant
   useEffect(() => {
     if (!channel || !user || !isLive) return;
 
-    // If change was remote, don't emit it back
     if (isRemoteChange.current) {
       isRemoteChange.current = false;
       return;
@@ -185,16 +215,16 @@ function SessionPage() {
     const timeout = setTimeout(() => {
       const now = Date.now();
       lastUpdateRef.current = now;
-      console.log("[CodeSync] Emitting code update...");
       channel.sendEvent({
         type: "code-update",
         code: code,
+        language: selectedLanguage,
         timestamp: now,
       });
-    }, 200); // Reduced debounce for faster sync
+    }, 200);
 
     return () => clearTimeout(timeout);
-  }, [code, channel, user, isLive]);
+  }, [code, channel, user, isLive, selectedLanguage]);
 
   const handleEndSession = async () => {
     if (confirm("Are you sure you want to end this session? All participants will be notified.")) {
@@ -204,10 +234,16 @@ function SessionPage() {
   };
 
   const handleShare = () => {
-    const url = window.location.href;
-    navigator.clipboard.writeText(url);
+    navigator.clipboard.writeText(window.location.href);
     toast.success("Session link copied to clipboard!");
   };
+
+  const handleRetry = useCallback(() => {
+    console.log("[SessionPage] Retrying connection...");
+    setJoinError(null);
+    hasInitiatedJoin.current = false;
+    // The useEffect will re-trigger now that joinError is cleared and hasInitiatedJoin is false
+  }, [setJoinError]);
 
   return (
     <div className="h-screen bg-base-100 flex flex-col">
@@ -215,13 +251,12 @@ function SessionPage() {
 
       <div className="flex-1">
         <PanelGroup direction="horizontal">
-          {/* LEFT PANEL - CODE EDITOR & PROBLEM DETAILS */}
+          {/* LEFT PANEL - CODE EDITOR & PROBLEM */}
           <Panel defaultSize={50} minSize={30}>
             <PanelGroup direction="vertical">
-              {/* PROBLEM DSC PANEL */}
               <Panel defaultSize={50} minSize={20}>
                 <div className="h-full overflow-y-auto bg-base-200">
-                  {/* HEADER SECTION */}
+                  {/* HEADER */}
                   <div className="p-6 bg-base-100 border-b border-base-300">
                     <div className="flex items-start justify-between mb-3">
                       <div>
@@ -237,20 +272,17 @@ function SessionPage() {
                             <> • Participant: {session.participant.name}</>
                           )}
                           {!session?.participant && (
-                            <> • {session?.participants?.length || 1}/2 participants</>
+                            <> • Waiting for participant...</>
                           )}
                         </p>
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <span
-                          className={`badge badge-lg ${getDifficultyBadgeClass(
-                            session?.difficulty
-                          )}`}
-                        >
-                          {session?.difficulty.slice(0, 1).toUpperCase() +
-                            session?.difficulty.slice(1) || "Easy"}
-                        </span>
+                        {session?.difficulty && (
+                          <span className={`badge badge-lg ${getDifficultyBadgeClass(session.difficulty)}`}>
+                            {session.difficulty.charAt(0).toUpperCase() + session.difficulty.slice(1)}
+                          </span>
+                        )}
                         {isHost && session?.status === "active" && (
                           <div className="flex items-center gap-2">
                             <button onClick={handleShare} className="btn btn-ghost btn-sm gap-2">
@@ -279,21 +311,15 @@ function SessionPage() {
                   </div>
 
                   <div className="p-6 space-y-6">
-                    {/* problem desc */}
                     {problemData?.description && (
                       <div className="bg-base-100 rounded-xl shadow-sm p-5 border border-base-300">
                         <h2 className="text-xl font-bold mb-4 text-base-content">Description</h2>
                         <div className="space-y-3 text-base leading-relaxed">
-                          {/* Description handling: check if it's an object (new structure) or string (old structure) */}
                           {typeof problemData.description === "object" ? (
                             <>
-                              <p className="text-base-content/90">
-                                {problemData.description.text}
-                              </p>
+                              <p className="text-base-content/90">{problemData.description.text}</p>
                               {problemData.description.notes?.map((note, idx) => (
-                                <p key={idx} className="text-base-content/90">
-                                  {note}
-                                </p>
+                                <p key={idx} className="text-base-content/90">{note}</p>
                               ))}
                             </>
                           ) : (
@@ -303,53 +329,33 @@ function SessionPage() {
                       </div>
                     )}
 
-                    {/* examples section */}
                     {problemData?.examples && problemData.examples.length > 0 && (
                       <div className="bg-base-100 rounded-xl shadow-sm p-5 border border-base-300">
                         <h2 className="text-xl font-bold mb-4 text-base-content">Examples</h2>
-
                         <div className="space-y-4">
                           {problemData.examples.map((example, idx) => {
-                            // Helper to parse example_text if input/output fields are missing
-                            const input =
-                              example.input ||
-                              example.example_text?.split("Input: ")?.[1]?.split("\n")?.[0] ||
-                              "";
-                            const output =
-                              example.output ||
-                              example.example_text?.split("Output: ")?.[1]?.split("\n")?.[0] ||
-                              "";
-                            const explanation =
-                              example.explanation ||
-                              example.example_text?.split("Explanation: ")?.[1] ||
-                              "";
-
+                            const input = example.input || example.example_text?.split("Input: ")?.[1]?.split("\n")?.[0] || "";
+                            const exOutput = example.output || example.example_text?.split("Output: ")?.[1]?.split("\n")?.[0] || "";
+                            const explanation = example.explanation || example.example_text?.split("Explanation: ")?.[1] || "";
                             return (
                               <div key={idx}>
                                 <div className="flex items-center gap-2 mb-2">
                                   <span className="badge badge-sm">{idx + 1}</span>
-                                  <p className="font-semibold text-base-content">
-                                    Example {idx + 1}
-                                  </p>
+                                  <p className="font-semibold text-base-content">Example {idx + 1}</p>
                                 </div>
                                 <div className="bg-base-200 rounded-lg p-4 font-mono text-sm space-y-1.5">
                                   <div className="flex gap-2">
-                                    <span className="text-primary font-bold min-w-[70px]">
-                                      Input:
-                                    </span>
+                                    <span className="text-primary font-bold min-w-[70px]">Input:</span>
                                     <span>{input}</span>
                                   </div>
                                   <div className="flex gap-2">
-                                    <span className="text-secondary font-bold min-w-[70px]">
-                                      Output:
-                                    </span>
-                                    <span>{output}</span>
+                                    <span className="text-secondary font-bold min-w-[70px]">Output:</span>
+                                    <span>{exOutput}</span>
                                   </div>
                                   {explanation && (
                                     <div className="pt-2 border-t border-base-300 mt-2">
                                       <span className="text-base-content/60 font-sans text-xs">
-                                        <span className="font-semibold">Explanation:</span>{" "}
-                                        {explanation}
+                                        <span className="font-semibold">Explanation:</span> {explanation}
                                       </span>
                                     </div>
                                   )}
@@ -361,7 +367,6 @@ function SessionPage() {
                       </div>
                     )}
 
-                    {/* Constraints */}
                     {problemData?.constraints && problemData.constraints.length > 0 && (
                       <div className="bg-base-100 rounded-xl shadow-sm p-5 border border-base-300">
                         <h2 className="text-xl font-bold mb-4 text-base-content">Constraints</h2>
@@ -393,9 +398,7 @@ function SessionPage() {
                       onRunCode={handleRunCode}
                     />
                   </Panel>
-
                   <PanelResizeHandle className="h-2 bg-base-300 hover:bg-primary transition-colors cursor-row-resize" />
-
                   <Panel defaultSize={30} minSize={15}>
                     <OutputPanel output={output} />
                   </Panel>
@@ -406,7 +409,7 @@ function SessionPage() {
 
           <PanelResizeHandle className="w-2 bg-base-300 hover:bg-primary transition-colors cursor-col-resize" />
 
-          {/* RIGHT PANEL - VIDEO CALLS & CHAT */}
+          {/* RIGHT PANEL - VIDEO & CHAT */}
           <Panel defaultSize={50} minSize={30}>
             <div className="h-full bg-base-200 p-4 overflow-auto">
               {isMinimized ? (
@@ -415,10 +418,7 @@ function SessionPage() {
                     <Loader2Icon className="w-12 h-12 mx-auto animate-bounce text-primary mb-4" />
                     <h3 className="text-xl font-bold">Session is Minimized</h3>
                     <p className="text-base-content/60 mt-2">Check the floating window or click below to expand</p>
-                    <button
-                      onClick={() => setIsMinimized(false)}
-                      className="btn btn-primary mt-6"
-                    >
+                    <button onClick={() => setIsMinimized(false)} className="btn btn-primary mt-6">
                       Expand Video
                     </button>
                   </div>
@@ -430,7 +430,7 @@ function SessionPage() {
                     <p className="text-lg">Connecting to video call...</p>
                   </div>
                 </div>
-              ) : !streamClient || !call || joinError ? (
+              ) : joinError ? (
                 <div className="h-full flex items-center justify-center">
                   <div className="card bg-base-100 shadow-xl max-w-md border border-error/20">
                     <div className="card-body items-center text-center">
@@ -438,20 +438,18 @@ function SessionPage() {
                         <PhoneOffIcon className="w-12 h-12 text-error" />
                       </div>
                       <h2 className="card-title text-2xl">Connection Failed</h2>
-                      <p className="text-base-content/70 mb-6">
-                        {joinError || "Unable to connect to the video call"}
-                      </p>
-
-                      <button
-                        onClick={() => {
-                          setJoinError(null);
-                          joinSession(session, isHost, isParticipant);
-                        }}
-                        className="btn btn-primary w-full gap-2"
-                      >
+                      <p className="text-base-content/70 mb-6">{joinError}</p>
+                      <button onClick={handleRetry} className="btn btn-primary w-full gap-2">
                         Retry Connection
                       </button>
                     </div>
+                  </div>
+                </div>
+              ) : !streamClient || !call ? (
+                <div className="h-full flex items-center justify-center">
+                  <div className="text-center">
+                    <Loader2Icon className="w-12 h-12 mx-auto animate-spin text-primary mb-4" />
+                    <p className="text-lg">Setting up video call...</p>
                   </div>
                 </div>
               ) : (

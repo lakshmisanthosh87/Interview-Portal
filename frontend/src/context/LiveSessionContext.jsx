@@ -1,17 +1,16 @@
-import { createContext, useContext, useState, useEffect, useRef } from "react";
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
 import { StreamChat } from "stream-chat";
 import toast from "react-hot-toast";
 import { initializeStreamClient, disconnectStreamClient } from "../lib/stream";
 import { sessionApi } from "../api/session";
 import { useUser } from "@clerk/clerk-react";
-import { StreamVideo, StreamCall } from "@stream-io/video-react-sdk";
 
 const LiveSessionContext = createContext();
 
 export const LiveSessionProvider = ({ children }) => {
   const { user, isLoaded: isUserLoaded } = useUser();
   const tabId = useRef(Math.random().toString(36).slice(2));
-  const isJoiningRef = useRef(false); // Ref based guard to prevent parallel joins
+  const isJoiningRef = useRef(false);
 
   const [activeSessionId, setActiveSessionId] = useState(() => localStorage.getItem("activeSessionId"));
   const [sessionData, setSessionData] = useState(null);
@@ -26,7 +25,16 @@ export const LiveSessionProvider = ({ children }) => {
   const [isInitializingCall, setIsInitializingCall] = useState(false);
   const [joinError, setJoinError] = useState(null);
 
-  // Sync state to localStorage
+  // Use refs for latest values in async functions (avoids stale closures)
+  const callRef = useRef(null);
+  const chatClientRef = useRef(null);
+  const isLiveRef = useRef(false);
+
+  useEffect(() => { callRef.current = call; }, [call]);
+  useEffect(() => { chatClientRef.current = chatClient; }, [chatClient]);
+  useEffect(() => { isLiveRef.current = isLive; }, [isLive]);
+
+  // Sync activeSessionId to localStorage
   useEffect(() => {
     if (activeSessionId) {
       localStorage.setItem("activeSessionId", activeSessionId);
@@ -39,240 +47,187 @@ export const LiveSessionProvider = ({ children }) => {
     localStorage.setItem("isMinimized", isMinimized);
   }, [isMinimized]);
 
-  // Handle cross-tab sync
+  // Cross-tab sync
   useEffect(() => {
     const handleStorageChange = (e) => {
-      if (e.key === "activeSessionId") {
-        setActiveSessionId(e.newValue);
-      }
-      if (e.key === "isMinimized") {
-        setIsMinimized(e.newValue === "true");
-      }
+      if (e.key === "activeSessionId") setActiveSessionId(e.newValue);
+      if (e.key === "isMinimized") setIsMinimized(e.newValue === "true");
     };
     window.addEventListener("storage", handleStorageChange);
     return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
-  // Monitor tab ownership: if another tab steals the session lock, this tab should back off
-  useEffect(() => {
-    const checkOwnership = (e) => {
-      if (!activeSessionId || !user?.id) return;
-      const lockKey = `session_owner_${activeSessionId}_${user.id}`;
-
-      if (e.key === lockKey && e.newValue && e.newValue !== tabId.current) {
-        if (isLive) {
-          console.log("[LiveSession] Ownership moved to another tab. Backing off safely.");
-          leaveSession(true); // Safely back off locally
-        }
+  // Helper to clean up connection resources only
+  const cleanupConnection = useCallback(async () => {
+    try {
+      if (callRef.current) {
+        console.log("[LiveSession] Leaving video call...");
+        await callRef.current.leave();
       }
-    };
-    window.addEventListener("storage", checkOwnership);
-    return () => window.removeEventListener("storage", checkOwnership);
-  }, [activeSessionId, user, isLive]);
-
-  // Auto-rejoin session on mount/auth
-  useEffect(() => {
-    const autoRejoin = async () => {
-      if (!isUserLoaded || !user || !activeSessionId || isLive || isJoining || isInitializingCall) return;
-
-      const isOnSessionPage = window.location.pathname.startsWith("/session/");
-
-      // Only auto-rejoin in background if it's already minimized
-      // OR if we are literally on the session page
-      if (!isMinimized && !isOnSessionPage) return;
-
-      try {
-        const { session } = await sessionApi.getSessionById(activeSessionId);
-        if (session && session.status === "active") {
-          const isHost = session.host?.clerkId === user.id;
-          const isParticipant = session.participant?.clerkId === user.id;
-
-          if (isHost || isParticipant) {
-            await joinSession(session, isHost, isParticipant);
-          } else {
-            leaveSession();
-          }
-        } else {
-          leaveSession();
-        }
-      } catch (error) {
-        console.error("Auto-rejoin failed:", error);
-        leaveSession();
+    } catch (e) {
+      console.error("[LiveSession] Error leaving call:", e);
+    }
+    try {
+      if (chatClientRef.current?.userID) {
+        console.log("[LiveSession] Disconnecting chat...");
+        await chatClientRef.current.disconnectUser();
       }
-    };
+    } catch (e) {
+      console.error("[LiveSession] Error disconnecting chat:", e);
+    }
+    try {
+      await disconnectStreamClient();
+    } catch (e) {
+      console.error("[LiveSession] Error disconnecting stream:", e);
+    }
+    setStreamClient(null);
+    setCall(null);
+    setChatClient(null);
+    setChannel(null);
+    setIsLive(false);
+  }, []);
 
-    autoRejoin();
-  }, [isUserLoaded, user, activeSessionId, isLive, isJoining, isMinimized]);
+  const joinSession = useCallback(async (session, isHost, isParticipant) => {
+    console.log("[LiveSession] joinSession called", {
+      callId: session?.callId,
+      sessionId: session?._id,
+      isHost,
+      isParticipant,
+      isJoiningRef: isJoiningRef.current,
+      isLive: isLiveRef.current
+    });
 
-  const joinSession = async (session, isHost, isParticipant) => {
-    if (!session?.callId || !user?.id) return;
-    if ((activeSessionId === session._id && isLive) || isJoining || isInitializingCall || isJoiningRef.current) return;
+    if (!session?.callId || !user?.id) {
+      console.warn("[LiveSession] Missing callId or user. Aborting join.");
+      return;
+    }
+
+    // Guard against parallel joins
+    if (isJoiningRef.current) {
+      console.log("[LiveSession] Already joining. Skipping.");
+      return;
+    }
+
+    // Already live on this session
+    if (isLiveRef.current) {
+      console.log("[LiveSession] Already live. Skipping.");
+      return;
+    }
 
     isJoiningRef.current = true;
-
-    // Ensure we clean up any old call before joining a new one
-    if (call) {
-      console.log("[LiveSession] Cleaning up existing call before new join...");
-      try {
-        await call.leave();
-        setCall(null);
-        // Safety delay for same-tab hardware release
-        await new Promise(resolve => setTimeout(resolve, 500));
-      } catch (e) {
-        console.error("[LiveSession] Error leaving old call", e);
-      }
-    }
-
-    // Tab-lock: only one tab per UNIQUE USER per session
-    const lockKey = `session_owner_${session._id}_${user?.id}`;
-    const currentOwner = localStorage.getItem(lockKey);
-    const isOnSessionPage = window.location.pathname.includes(`/session/${session._id}`);
-
-    if (currentOwner && currentOwner !== tabId.current) {
-      if (isOnSessionPage) {
-        console.log("[LiveSession] Session page taking priority. Waiting for other tab to release camera...");
-        localStorage.setItem(lockKey, tabId.current);
-        // Small delay to allow previous tab to call call.leave() and release hardware
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      } else {
-        console.log("[LiveSession] Another tab owns this session. Skipping join.");
-        return;
-      }
-    } else {
-      localStorage.setItem(lockKey, tabId.current);
-    }
-
     setIsJoining(true);
     setIsInitializingCall(true);
-    setJoinError(null); // Reset error on new attempt
+    setJoinError(null);
     setActiveSessionId(session._id);
     setSessionData(session);
-    // setIsLive(true) moved to after successful connection
+
+    // Clean up any existing connection first
+    if (callRef.current) {
+      console.log("[LiveSession] Cleaning up old call before new join...");
+      await cleanupConnection();
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
 
     try {
-      console.log(`[LiveSession] Fetching token for user ${user?.id}...`);
+      // 1. Get Stream token from backend
+      console.log("[LiveSession] Step 1: Fetching Stream token...");
       const { token, userId, userName, userImage } = await sessionApi.getStreamToken();
-      console.log(`[LiveSession] Token received. Initializing client for ${userName}...`);
+      console.log(`[LiveSession] Token received for ${userName} (${userId})`);
 
+      // 2. Initialize Stream Video client
+      console.log("[LiveSession] Step 2: Initializing Stream Video client...");
       const client = await initializeStreamClient(
-        {
-          id: userId,
-          name: userName,
-          image: userImage,
-        },
+        { id: userId, name: userName, image: userImage },
         token
       );
-
       setStreamClient(client);
 
+      // 3. Join the video call
+      console.log(`[LiveSession] Step 3: Joining video call '${session.callId}'...`);
       const videoCall = client.call("default", session.callId);
       await videoCall.join({ create: true });
+      console.log("[LiveSession] Video call joined successfully!");
       setCall(videoCall);
 
+      // 4. Initialize Stream Chat
+      console.log("[LiveSession] Step 4: Initializing Stream Chat...");
       const apiKey = import.meta.env.VITE_STREAM_API_KEY;
-      if (!apiKey) throw new Error("VITE_STREAM_API_KEY is not defined in environment variables");
-      const chatInstance = StreamChat.getInstance(apiKey);
+      if (!apiKey) throw new Error("VITE_STREAM_API_KEY is not defined");
 
+      const chatInstance = StreamChat.getInstance(apiKey);
       if (chatInstance.userID !== userId) {
         if (chatInstance.userID) {
           await chatInstance.disconnectUser();
         }
         await chatInstance.connectUser(
-          {
-            id: userId,
-            name: userName,
-            image: userImage,
-          },
+          { id: userId, name: userName, image: userImage },
           token
         );
       }
       setChatClient(chatInstance);
 
+      // 5. Join the chat channel
+      console.log(`[LiveSession] Step 5: Joining chat channel '${session.callId}'...`);
       const chatChannel = chatInstance.channel("messaging", session.callId);
       await chatChannel.watch();
       setChannel(chatChannel);
 
-      setIsLive(true); // Only set live once everything is ready
+      console.log("[LiveSession] ✅ All connections established! Session is LIVE.");
+      setIsLive(true);
     } catch (error) {
+      console.error("[LiveSession] ❌ Error joining session:", error);
       setJoinError(error.message || "Failed to join video call");
       toast.error(error.message || "Failed to join video call");
-      console.error("Error init call", error);
-      leaveSession();
+
+      // Clean up partial resources but keep activeSessionId for retry
+      await cleanupConnection();
     } finally {
       setIsInitializingCall(false);
       setIsJoining(false);
       isJoiningRef.current = false;
     }
-  };
+  }, [user, cleanupConnection]);
 
-  const leaveSession = async (isBackoff = false) => {
+  const leaveSession = useCallback(async (isBackoff = false) => {
     console.log(`[LiveSession] ${isBackoff ? "Backing off" : "Leaving"} session...`);
 
-    // Notify backend if it's an intentional leave (not just a system backoff)
     if (!isBackoff && activeSessionId) {
       try {
         await sessionApi.leaveSession(activeSessionId);
       } catch (error) {
-        console.error("[LiveSession] Failed to notify backend of leave:", error.message);
+        console.error("[LiveSession] Failed to notify backend:", error.message);
       }
     }
 
-    try {
-      if (call) await call.leave();
-      if (chatClient) await chatClient.disconnectUser();
-      await disconnectStreamClient();
-    } catch (error) {
-      console.error("[LiveSession] Cleanup error:", error);
-    } finally {
-      setIsLive(false);
-      setIsInitializingCall(false);
-      setIsJoining(false);
-      setIsMinimized(false);
-      setStreamClient(null);
-      setCall(null);
-      setChatClient(null);
-      setChannel(null);
-      setSessionData(null);
+    await cleanupConnection();
 
-      if (!isBackoff) {
-        localStorage.removeItem("activeSessionId");
-        localStorage.removeItem("isMinimized");
-        if (activeSessionId && user?.id) {
-          localStorage.removeItem(`session_owner_${activeSessionId}_${user.id}`);
-        }
-        setActiveSessionId(null);
-      }
+    setSessionData(null);
+    setIsInitializingCall(false);
+    setIsJoining(false);
+    setIsMinimized(false);
+    isJoiningRef.current = false;
+
+    if (!isBackoff) {
+      localStorage.removeItem("activeSessionId");
+      localStorage.removeItem("isMinimized");
+      setActiveSessionId(null);
     }
-  };
+  }, [activeSessionId, cleanupConnection]);
 
-  // Immediate cleanup on tab close to prevent "ghost" participants
+  // Cleanup on tab close
   useEffect(() => {
     const handleUnload = () => {
-      if (sessionData?._id && user?.id) {
-        const lockKey = `session_owner_${sessionData._id}_${user.id}`;
-        if (localStorage.getItem(lockKey) === tabId.current) {
-          localStorage.removeItem(lockKey);
-        }
-      }
-
-      // Attempt synchronous leave to notify Stream servers immediately
-      if (call) {
-        try {
-          call.leave();
-        } catch (e) {
-          // ignore cleanup errors on leave
-        }
+      if (callRef.current) {
+        try { callRef.current.leave(); } catch (e) { /* ignore */ }
       }
     };
-
     window.addEventListener("beforeunload", handleUnload);
-    window.addEventListener("pagehide", handleUnload); // better support for some mobile/browsers
-
+    window.addEventListener("pagehide", handleUnload);
     return () => {
       window.removeEventListener("beforeunload", handleUnload);
       window.removeEventListener("pagehide", handleUnload);
     };
-  }, [call, sessionData, user]);
+  }, []);
 
   return (
     <LiveSessionContext.Provider
@@ -280,6 +235,7 @@ export const LiveSessionProvider = ({ children }) => {
         activeSessionId,
         sessionData,
         isLive,
+        isJoining,
         isMinimized,
         setIsMinimized,
         streamClient,
