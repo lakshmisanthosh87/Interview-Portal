@@ -6,11 +6,26 @@ import {
   UsersIcon,
   ZapIcon,
   LoaderIcon,
+  LogOutIcon
 } from "lucide-react";
 import { Link } from "react-router";
 import { getDifficultyBadgeClass } from "../lib/utils";
+import { useEndSession } from "../hooks/useSessions";
+import { useUser } from "@clerk/clerk-react";
+import toast from "react-hot-toast";
 
 function ActiveSession({ sessions, isLoading, isUserInSession }) {
+  const { user } = useUser();
+  const endSessionMutation = useEndSession();
+
+  const handleEndSession = (e, sessionId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (confirm("Are you sure you want to end this session?")) {
+      endSessionMutation.mutate(sessionId);
+    }
+  };
+
   return (
     <div className="lg:col-span-2 card bg-base-100 border-2 border-primary/20 hover:border-primary/30 h-full">
       <div className="card-body">
@@ -37,7 +52,10 @@ function ActiveSession({ sessions, isLoading, isUserInSession }) {
               <LoaderIcon className="size-10 animate-spin text-primary" />
             </div>
           ) : sessions.length > 0 ? (
-            sessions.map((session) => (
+            sessions.map((session) => {
+              const isHost = session.host?.clerkId === user?.id;
+              
+              return (
               <div
                 key={session._id}
                 className="card bg-base-200 border-2 border-base-300 hover:border-primary/50"
@@ -52,7 +70,7 @@ function ActiveSession({ sessions, isLoading, isUserInSession }) {
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-bold text-lg truncate">{session.problem}</h3>
+                        <h3 className="font-bold text-lg truncate">Session: "{session.title}"</h3>
                         <span
                           className={`badge badge-sm ${getDifficultyBadgeClass(
                             session.difficulty
@@ -66,7 +84,7 @@ function ActiveSession({ sessions, isLoading, isUserInSession }) {
                       <div className="flex items-center gap-4 text-sm opacity-80">
                         <div className="flex items-center gap-1.5">
                           <CrownIcon className="size-4" />
-                          <span className="font-medium">{session.host?.name}</span>
+                          <span className="font-medium">Host: {session.host?.name}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <UsersIcon className="size-4" />
@@ -83,17 +101,30 @@ function ActiveSession({ sessions, isLoading, isUserInSession }) {
                     </div>
                   </div>
 
-                  {session.participants?.length >= 2 && !isUserInSession(session) ? (
-                    <button className="btn btn-disabled btn-sm">Full</button>
-                  ) : (
-                    <Link to={`/session/${session._id}`} className="btn btn-primary btn-sm gap-2">
-                      {isUserInSession(session) ? "Rejoin" : "Join"}
-                      <ArrowRightIcon className="size-4" />
-                    </Link>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {isHost && (
+                      <button 
+                        onClick={(e) => handleEndSession(e, session._id)}
+                        className="btn btn-error btn-sm btn-outline gap-2"
+                        disabled={endSessionMutation.isPending}
+                      >
+                        <LogOutIcon className="size-4" />
+                        End
+                      </button>
+                    )}
+                    {session.participants?.length >= 2 && !isUserInSession(session) ? (
+                      <button className="btn btn-disabled btn-sm">Full</button>
+                    ) : (
+                      <Link to={`/session/${session._id}`} className="btn btn-primary btn-sm gap-2">
+                        {isUserInSession(session) ? "Rejoin" : "Join"}
+                        <ArrowRightIcon className="size-4" />
+                      </Link>
+                    )}
+                  </div>
                 </div>
               </div>
-            ))
+              );
+            })
           ) : (
             <div className="text-center py-16">
               <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-primary/20 to-secondary/20 rounded-3xl flex items-center justify-center">

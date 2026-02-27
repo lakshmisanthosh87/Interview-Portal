@@ -46,7 +46,7 @@ function DashboardPage() {
     return session.host?.clerkId === user.id || session.participant?.clerkId === user.id;
   };
 
-  const activeSessions = (activeSessionsData?.sessions || []).filter(isUserInSession);
+  const activeSessions = activeSessionsData?.sessions || [];
   const recentSessions = recentSessionsData?.sessions || [];
 
   return (

@@ -59,6 +59,11 @@ function CreateSessionModal({
   };
 
   const handleCreateSession = async () => {
+    if (!sessionTitle.trim()) {
+      toast.error("Session title is required");
+      return;
+    }
+
     if (selectedProblems.length === 0 && selectedCustomProblems.length === 0) {
       toast.error("Please add at least one problem");
       return;

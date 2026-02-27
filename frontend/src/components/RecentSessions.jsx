@@ -48,7 +48,7 @@ function RecentSessions({ sessions, isLoading }) {
                       <Code2 className="w-6 h-6 text-white" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-base mb-1 truncate">{session.problem}</h3>
+                      <h3 className="font-bold text-base mb-1 truncate">Session: "{session.title}"</h3>
                       <span
                         className={`badge badge-sm ${getDifficultyBadgeClass(session.difficulty)}`}
                       >

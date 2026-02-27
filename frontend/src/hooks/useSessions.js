@@ -1,13 +1,17 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { sessionApi } from "../api/session";
 import { problemApi } from "../api/problem";
 
 export const useCreateSession = () => {
+  const queryClient = useQueryClient();
   const result = useMutation({
     mutationKey: ["createSession"],
     mutationFn: sessionApi.createSession,
-    onSuccess: () => toast.success("Session created successfully!"),
+    onSuccess: () => {
+      toast.success("Session created successfully!");
+      queryClient.invalidateQueries({ queryKey: ["activeSessions"] });
+    },
     onError: (error) => toast.error(error.response?.data?.message || "Failed to create room"),
   });
 
@@ -44,10 +48,14 @@ export const useSessionById = (id) => {
 };
 
 export const useJoinSession = () => {
+  const queryClient = useQueryClient();
   const result = useMutation({
     mutationKey: ["joinSession"],
     mutationFn: sessionApi.joinSession,
-    onSuccess: () => toast.success("Joined session successfully!"),
+    onSuccess: () => {
+      toast.success("Joined session successfully!");
+      queryClient.invalidateQueries({ queryKey: ["activeSessions"] });
+    },
     onError: (error) => toast.error(error.response?.data?.message || "Failed to join session"),
   });
 
@@ -55,19 +63,28 @@ export const useJoinSession = () => {
 };
 
 export const useLeaveSession = () => {
+  const queryClient = useQueryClient();
   const result = useMutation({
     mutationKey: ["leaveSession"],
     mutationFn: sessionApi.leaveSession,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["activeSessions"] });
+    }
   });
 
   return result;
 };
 
 export const useEndSession = () => {
+  const queryClient = useQueryClient();
   const result = useMutation({
     mutationKey: ["endSession"],
     mutationFn: sessionApi.endSession,
-    onSuccess: () => toast.success("Session ended successfully!"),
+    onSuccess: () => {
+      toast.success("Session ended successfully!");
+      queryClient.invalidateQueries({ queryKey: ["activeSessions"] });
+      queryClient.invalidateQueries({ queryKey: ["myRecentSessions"] });
+    },
     onError: (error) => toast.error(error.response?.data?.message || "Failed to end session"),
   });
 
