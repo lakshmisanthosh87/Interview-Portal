@@ -25,14 +25,30 @@ export const LiveSessionProvider = ({ children }) => {
   const [isInitializingCall, setIsInitializingCall] = useState(false);
   const [joinError, setJoinError] = useState(null);
 
-  // Use refs for latest values in async functions (avoids stale closures)
+  // Persistence State for Code Editor
+  const [code, setCode] = useState(() => {
+    const saved = localStorage.getItem(`code_${activeSessionId}`);
+    return saved || "";
+  });
+  const [selectedLanguage, setSelectedLanguage] = useState(() => {
+    const saved = localStorage.getItem(`lang_${activeSessionId}`);
+    return saved || "javascript";
+  });
+
+  // Refs for latest values in async functions (avoids stale closures)
   const callRef = useRef(null);
   const chatClientRef = useRef(null);
   const isLiveRef = useRef(false);
+  const codeRef = useRef(code);
+  const selectedLanguageRef = useRef(selectedLanguage);
+  const lastUpdateRef = useRef(0);
+  const isRemoteChange = useRef(false);
 
   useEffect(() => { callRef.current = call; }, [call]);
   useEffect(() => { chatClientRef.current = chatClient; }, [chatClient]);
   useEffect(() => { isLiveRef.current = isLive; }, [isLive]);
+  useEffect(() => { codeRef.current = code; }, [code]);
+  useEffect(() => { selectedLanguageRef.current = selectedLanguage; }, [selectedLanguage]);
 
   // Sync activeSessionId to localStorage
   useEffect(() => {
@@ -47,6 +63,14 @@ export const LiveSessionProvider = ({ children }) => {
     localStorage.setItem("isMinimized", isMinimized);
   }, [isMinimized]);
 
+  // Persist code and language to localStorage
+  useEffect(() => {
+    if (activeSessionId) {
+      localStorage.setItem(`code_${activeSessionId}`, code);
+      localStorage.setItem(`lang_${activeSessionId}`, selectedLanguage);
+    }
+  }, [code, selectedLanguage, activeSessionId]);
+
   // Cross-tab sync
   useEffect(() => {
     const handleStorageChange = (e) => {
@@ -56,6 +80,78 @@ export const LiveSessionProvider = ({ children }) => {
     window.addEventListener("storage", handleStorageChange);
     return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
+
+  // Real-time synchronization logic moved to Context
+  useEffect(() => {
+    if (!channel || !user) return;
+
+    const handleEvent = (event) => {
+      if (!event.user || event.user.id === user.id) return;
+
+      if (event.type === "code-update") {
+        if (event.timestamp > lastUpdateRef.current) {
+          lastUpdateRef.current = event.timestamp;
+          if (event.code !== codeRef.current) {
+            console.log("[CodeSync] Context: Received remote code update");
+            isRemoteChange.current = true;
+            setCode(event.code);
+          }
+          if (event.language && event.language !== selectedLanguageRef.current) {
+            setSelectedLanguage(event.language);
+          }
+        }
+      } else if (event.type === "language-update") {
+        if (event.language !== selectedLanguageRef.current) {
+          setSelectedLanguage(event.language);
+          if (event.starterCode) {
+            isRemoteChange.current = true;
+            setCode(event.starterCode);
+          }
+        }
+      } else if (event.type === "request-sync" && sessionData?.host?.clerkId === user.id) {
+        console.log("[CodeSync] Context: Sending state to requester");
+        channel.sendEvent({
+          type: "code-update",
+          code: codeRef.current,
+          language: selectedLanguageRef.current,
+          timestamp: Date.now(),
+        });
+      }
+    };
+
+    channel.on(handleEvent);
+    
+    // Request initial sync if we are the participant just joining
+    if (sessionData?.host?.clerkId !== user.id && isLive) {
+      console.log("[CodeSync] Context: Participant requesting sync");
+      channel.sendEvent({ type: "request-sync" });
+    }
+
+    return () => channel.off(handleEvent);
+  }, [channel, user, isLive, sessionData]);
+
+  // Debounced emission
+  useEffect(() => {
+    if (!channel || !user || !isLive) return;
+
+    if (isRemoteChange.current) {
+      isRemoteChange.current = false;
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      const now = Date.now();
+      lastUpdateRef.current = now;
+      channel.sendEvent({
+        type: "code-update",
+        code: code,
+        language: selectedLanguage,
+        timestamp: now,
+      });
+    }, 200);
+
+    return () => clearTimeout(timeout);
+  }, [code, channel, user, isLive, selectedLanguage]);
 
   // Helper to clean up connection resources only
   const cleanupConnection = useCallback(async () => {
@@ -102,17 +198,8 @@ export const LiveSessionProvider = ({ children }) => {
       return;
     }
 
-    // Guard against parallel joins
-    if (isJoiningRef.current) {
-      console.log("[LiveSession] Already joining. Skipping.");
-      return;
-    }
-
-    // Already live on this session
-    if (isLiveRef.current) {
-      console.log("[LiveSession] Already live. Skipping.");
-      return;
-    }
+    if (isJoiningRef.current) return;
+    if (isLiveRef.current) return;
 
     isJoiningRef.current = true;
     setIsJoining(true);
@@ -121,65 +208,57 @@ export const LiveSessionProvider = ({ children }) => {
     setActiveSessionId(session._id);
     setSessionData(session);
 
+    // Initialize code from localStorage or reset if new session
+    const savedCode = localStorage.getItem(`code_${session._id}`);
+    const savedLang = localStorage.getItem(`lang_${session._id}`);
+    if (savedCode) {
+      setCode(savedCode);
+    } else {
+      setCode(""); // Reset for new session so SessionPage can set starter code
+    }
+    if (savedLang) {
+      setSelectedLanguage(savedLang);
+    } else {
+      setSelectedLanguage("javascript");
+    }
+
     // Clean up any existing connection first
     if (callRef.current) {
-      console.log("[LiveSession] Cleaning up old call before new join...");
       await cleanupConnection();
       await new Promise(resolve => setTimeout(resolve, 300));
     }
 
     try {
-      // 1. Get Stream token from backend
-      console.log("[LiveSession] Step 1: Fetching Stream token...");
       const { token, userId, userName, userImage } = await sessionApi.getStreamToken();
-      console.log(`[LiveSession] Token received for ${userName} (${userId})`);
-
-      // 2. Initialize Stream Video client
-      console.log("[LiveSession] Step 2: Initializing Stream Video client...");
       const client = await initializeStreamClient(
         { id: userId, name: userName, image: userImage },
         token
       );
       setStreamClient(client);
 
-      // 3. Join the video call
-      console.log(`[LiveSession] Step 3: Joining video call '${session.callId}'...`);
       const videoCall = client.call("default", session.callId);
       await videoCall.join({ create: true });
-      console.log("[LiveSession] Video call joined successfully!");
       setCall(videoCall);
 
-      // 4. Initialize Stream Chat
-      console.log("[LiveSession] Step 4: Initializing Stream Chat...");
       const apiKey = import.meta.env.VITE_STREAM_API_KEY;
       if (!apiKey) throw new Error("VITE_STREAM_API_KEY is not defined");
 
       const chatInstance = StreamChat.getInstance(apiKey);
       if (chatInstance.userID !== userId) {
-        if (chatInstance.userID) {
-          await chatInstance.disconnectUser();
-        }
-        await chatInstance.connectUser(
-          { id: userId, name: userName, image: userImage },
-          token
-        );
+        if (chatInstance.userID) await chatInstance.disconnectUser();
+        await chatInstance.connectUser({ id: userId, name: userName, image: userImage }, token);
       }
       setChatClient(chatInstance);
 
-      // 5. Join the chat channel
-      console.log(`[LiveSession] Step 5: Joining chat channel '${session.callId}'...`);
       const chatChannel = chatInstance.channel("messaging", session.callId);
       await chatChannel.watch();
       setChannel(chatChannel);
 
-      console.log("[LiveSession] ✅ All connections established! Session is LIVE.");
       setIsLive(true);
     } catch (error) {
-      console.error("[LiveSession] ❌ Error joining session:", error);
+      console.error("[LiveSession] Error joining session:", error);
       setJoinError(error.message || "Failed to join video call");
       toast.error(error.message || "Failed to join video call");
-
-      // Clean up partial resources but keep activeSessionId for retry
       await cleanupConnection();
     } finally {
       setIsInitializingCall(false);
@@ -189,8 +268,6 @@ export const LiveSessionProvider = ({ children }) => {
   }, [user, cleanupConnection]);
 
   const leaveSession = useCallback(async (isBackoff = false) => {
-    console.log(`[LiveSession] ${isBackoff ? "Backing off" : "Leaving"} session...`);
-
     if (!isBackoff && activeSessionId) {
       try {
         await sessionApi.leaveSession(activeSessionId);
@@ -200,6 +277,13 @@ export const LiveSessionProvider = ({ children }) => {
     }
 
     await cleanupConnection();
+
+    // Clear local storage for this session if it's a final leave?
+    // User asked "code state must persist", so maybe don't remove unless session completed
+    if (!isBackoff && sessionData?.status === "completed") {
+      localStorage.removeItem(`code_${activeSessionId}`);
+      localStorage.removeItem(`lang_${activeSessionId}`);
+    }
 
     setSessionData(null);
     setIsInitializingCall(false);
@@ -212,7 +296,7 @@ export const LiveSessionProvider = ({ children }) => {
       localStorage.removeItem("isMinimized");
       setActiveSessionId(null);
     }
-  }, [activeSessionId, cleanupConnection]);
+  }, [activeSessionId, cleanupConnection, sessionData]);
 
   // Cleanup on tab close
   useEffect(() => {
@@ -247,6 +331,10 @@ export const LiveSessionProvider = ({ children }) => {
         setJoinError,
         joinSession,
         leaveSession,
+        code,
+        setCode,
+        selectedLanguage,
+        setSelectedLanguage,
       }}
     >
       {children}

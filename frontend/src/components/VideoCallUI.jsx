@@ -60,7 +60,6 @@ function VideoCallUI({ chatClient, channel, isMini = false }) {
 
   const handleMinimize = () => {
     setIsMinimized(true);
-    navigate("/dashboard");
   };
 
   return (

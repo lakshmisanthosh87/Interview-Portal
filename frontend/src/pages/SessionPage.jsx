@@ -22,7 +22,6 @@ function SessionPage() {
   const { user } = useUser();
   const [output, setOutput] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
-  const isRemoteChange = useRef(false);
   const hasInitiatedJoin = useRef(false);
 
   const { data: sessionData, isLoading: loadingSession, refetch } = useSessionById(id);
@@ -46,7 +45,12 @@ function SessionPage() {
     chatClient,
     channel,
     joinError,
-    setJoinError
+    setJoinError,
+    // Code Persistence State from Context
+    code,
+    setCode,
+    selectedLanguage,
+    setSelectedLanguage
   } = useLiveSession();
 
   const isInitializingCall = globalInitializing || loadingSession;
@@ -55,24 +59,12 @@ function SessionPage() {
     ? session.customProblemId
     : (session?.problem ? Object.values(PROBLEMS).find((p) => p.title === session.problem) : null);
 
-  const [selectedLanguage, setSelectedLanguage] = useState("javascript");
-  const [code, setCode] = useState(problemData?.starterCode?.[selectedLanguage] || "");
-
-  // Refs for code sync to avoid stale closures in event handlers
-  const codeRef = useRef(code);
-  const selectedLanguageRef = useRef(selectedLanguage);
-  const lastUpdateRef = useRef(0);
-
-  useEffect(() => { codeRef.current = code; }, [code]);
-  useEffect(() => { selectedLanguageRef.current = selectedLanguage; }, [selectedLanguage]);
-
-  // Reset join flag when session ID changes (navigated to a different session)
+  // Reset join flag when session ID changes
   useEffect(() => {
     hasInitiatedJoin.current = false;
   }, [id]);
 
   // ===== AUTO-JOIN SESSION =====
-  // This is the ONLY place that initiates joining. Runs once when session data loads.
   useEffect(() => {
     if (!session || !user || loadingSession) return;
     if (isLive || isJoining || globalInitializing) return;
@@ -80,40 +72,30 @@ function SessionPage() {
     if (joinError) return;
     if (joinSessionMutation.isPending) return;
 
-    // Mark that we've initiated a join to prevent re-triggering
     hasInitiatedJoin.current = true;
 
     console.log("[SessionPage] Auto-join triggered", { isHost, isParticipant, sessionId: session._id });
 
     if (isHost || isParticipant) {
-      // Already registered as host or participant — join directly
-      console.log("[SessionPage] Joining as", isHost ? "HOST" : "PARTICIPANT");
       joinSession(session, isHost, isParticipant);
     } else {
-      // New guest — register with backend first
-      console.log("[SessionPage] Registering as new guest with backend...");
       joinSessionMutation.mutate(id, {
         onSuccess: async () => {
-          console.log("[SessionPage] Guest registration successful. Refetching session...");
-          // Refetch to get populated session with participant data
           const { data: refreshed } = await refetch();
           if (refreshed?.session) {
-            console.log("[SessionPage] Got populated session. Joining video call...");
             joinSession(refreshed.session, false, true);
           } else {
-            console.error("[SessionPage] Refetch returned no session data");
             hasInitiatedJoin.current = false;
           }
         },
         onError: (error) => {
-          console.error("[SessionPage] Guest registration failed:", error);
           hasInitiatedJoin.current = false;
           toast.error(error.response?.data?.message || "Failed to join session");
           navigate("/dashboard");
         }
       });
     }
-  }, [session?._id, user?.id, loadingSession, isLive, isJoining, globalInitializing, joinError, isHost, isParticipant]);
+  }, [session?._id, user?.id, loadingSession, isLive, isJoining, globalInitializing, joinError, isHost, isParticipant, id]);
 
   // Redirect when session is completed
   useEffect(() => {
@@ -121,12 +103,12 @@ function SessionPage() {
     if (session.status === "completed") navigate("/dashboard");
   }, [session, loadingSession, navigate]);
 
-  // Initialize code from problem data
+  // Initialize code from problem data IF it's empty
   useEffect(() => {
     if (problemData?.starterCode?.[selectedLanguage] && !code) {
       setCode(problemData.starterCode[selectedLanguage]);
     }
-  }, [problemData, selectedLanguage, code]);
+  }, [problemData, selectedLanguage]); // Removed code dependency to only initialize once
 
   const handleLanguageChange = (e) => {
     const newLang = e.target.value;
@@ -152,80 +134,6 @@ function SessionPage() {
     setIsRunning(false);
   };
 
-  // ===== REAL-TIME CODE SYNC =====
-  // Uses refs so the handler doesn't need to re-register on every keystroke
-  useEffect(() => {
-    if (!channel || !user) return;
-
-    const handleEvent = (event) => {
-      // Ignore our own events
-      if (!event.user || event.user.id === user.id) return;
-
-      if (event.type === "code-update") {
-        if (event.timestamp > lastUpdateRef.current) {
-          lastUpdateRef.current = event.timestamp;
-          if (event.code !== codeRef.current) {
-            console.log("[CodeSync] Received remote code update");
-            isRemoteChange.current = true;
-            setCode(event.code);
-          }
-          if (event.language && event.language !== selectedLanguageRef.current) {
-            setSelectedLanguage(event.language);
-          }
-        }
-      } else if (event.type === "language-update") {
-        if (event.language !== selectedLanguageRef.current) {
-          setSelectedLanguage(event.language);
-          if (event.starterCode) {
-            isRemoteChange.current = true;
-            setCode(event.starterCode);
-          }
-        }
-      } else if (event.type === "request-sync" && isHost) {
-        console.log("[CodeSync] Sending current state to participant");
-        channel.sendEvent({
-          type: "code-update",
-          code: codeRef.current,
-          language: selectedLanguageRef.current,
-          timestamp: Date.now(),
-        });
-      }
-    };
-
-    channel.on(handleEvent);
-
-    // Participant requests initial sync from host
-    if (!isHost && isLive) {
-      console.log("[CodeSync] Requesting initial sync from host");
-      channel.sendEvent({ type: "request-sync" });
-    }
-
-    return () => channel.off(handleEvent);
-  }, [channel, user, isHost, isLive]);
-
-  // Debounced code emission to other participant
-  useEffect(() => {
-    if (!channel || !user || !isLive) return;
-
-    if (isRemoteChange.current) {
-      isRemoteChange.current = false;
-      return;
-    }
-
-    const timeout = setTimeout(() => {
-      const now = Date.now();
-      lastUpdateRef.current = now;
-      channel.sendEvent({
-        type: "code-update",
-        code: code,
-        language: selectedLanguage,
-        timestamp: now,
-      });
-    }, 200);
-
-    return () => clearTimeout(timeout);
-  }, [code, channel, user, isLive, selectedLanguage]);
-
   const handleEndSession = async () => {
     if (confirm("Are you sure you want to end this session? All participants will be notified.")) {
       await leaveSession();
@@ -239,10 +147,8 @@ function SessionPage() {
   };
 
   const handleRetry = useCallback(() => {
-    console.log("[SessionPage] Retrying connection...");
     setJoinError(null);
     hasInitiatedJoin.current = false;
-    // The useEffect will re-trigger now that joinError is cleared and hasInitiatedJoin is false
   }, [setJoinError]);
 
   return (
@@ -251,12 +157,10 @@ function SessionPage() {
 
       <div className="flex-1">
         <PanelGroup direction="horizontal">
-          {/* LEFT PANEL - CODE EDITOR & PROBLEM */}
           <Panel defaultSize={50} minSize={30}>
             <PanelGroup direction="vertical">
               <Panel defaultSize={50} minSize={20}>
                 <div className="h-full overflow-y-auto bg-base-200">
-                  {/* HEADER */}
                   <div className="p-6 bg-base-100 border-b border-base-300">
                     <div className="flex items-start justify-between mb-3">
                       <div>
@@ -328,56 +232,30 @@ function SessionPage() {
                         </div>
                       </div>
                     )}
-
+                    {/* ... rest of the problem description UI ... */}
                     {problemData?.examples && problemData.examples.length > 0 && (
                       <div className="bg-base-100 rounded-xl shadow-sm p-5 border border-base-300">
                         <h2 className="text-xl font-bold mb-4 text-base-content">Examples</h2>
                         <div className="space-y-4">
-                          {problemData.examples.map((example, idx) => {
-                            const input = example.input || example.example_text?.split("Input: ")?.[1]?.split("\n")?.[0] || "";
-                            const exOutput = example.output || example.example_text?.split("Output: ")?.[1]?.split("\n")?.[0] || "";
-                            const explanation = example.explanation || example.example_text?.split("Explanation: ")?.[1] || "";
-                            return (
-                              <div key={idx}>
-                                <div className="flex items-center gap-2 mb-2">
-                                  <span className="badge badge-sm">{idx + 1}</span>
-                                  <p className="font-semibold text-base-content">Example {idx + 1}</p>
+                          {problemData.examples.map((example, idx) => (
+                            <div key={idx}>
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className="badge badge-sm">{idx + 1}</span>
+                                <p className="font-semibold text-base-content">Example {idx + 1}</p>
+                              </div>
+                              <div className="bg-base-200 rounded-lg p-4 font-mono text-sm space-y-1.5">
+                                <div className="flex gap-2">
+                                  <span className="text-primary font-bold min-w-[70px]">Input:</span>
+                                  <span>{example.input || ""}</span>
                                 </div>
-                                <div className="bg-base-200 rounded-lg p-4 font-mono text-sm space-y-1.5">
-                                  <div className="flex gap-2">
-                                    <span className="text-primary font-bold min-w-[70px]">Input:</span>
-                                    <span>{input}</span>
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <span className="text-secondary font-bold min-w-[70px]">Output:</span>
-                                    <span>{exOutput}</span>
-                                  </div>
-                                  {explanation && (
-                                    <div className="pt-2 border-t border-base-300 mt-2">
-                                      <span className="text-base-content/60 font-sans text-xs">
-                                        <span className="font-semibold">Explanation:</span> {explanation}
-                                      </span>
-                                    </div>
-                                  )}
+                                <div className="flex gap-2">
+                                  <span className="text-secondary font-bold min-w-[70px]">Output:</span>
+                                  <span>{example.output || ""}</span>
                                 </div>
                               </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {problemData?.constraints && problemData.constraints.length > 0 && (
-                      <div className="bg-base-100 rounded-xl shadow-sm p-5 border border-base-300">
-                        <h2 className="text-xl font-bold mb-4 text-base-content">Constraints</h2>
-                        <ul className="space-y-2 text-base-content/90">
-                          {problemData.constraints.map((constraint, idx) => (
-                            <li key={idx} className="flex gap-2">
-                              <span className="text-primary">•</span>
-                              <code className="text-sm">{constraint}</code>
-                            </li>
+                            </div>
                           ))}
-                        </ul>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -409,7 +287,6 @@ function SessionPage() {
 
           <PanelResizeHandle className="w-2 bg-base-300 hover:bg-primary transition-colors cursor-col-resize" />
 
-          {/* RIGHT PANEL - VIDEO & CHAT */}
           <Panel defaultSize={50} minSize={30}>
             <div className="h-full bg-base-200 p-4 overflow-auto">
               {isMinimized ? (
